@@ -240,6 +240,9 @@ class DiscoverJob:
             Le status est préservé si le produit a déjà été traité (scored, selected, launched),
             sinon il est mis à jour à "new".
         """
+        # FLUSH AVANT la vérification pour s'assurer que les changements précédents sont visibles
+        self.db.flush()
+        
         # Rechercher le produit existant par ASIN
         existing = (
             self.db.query(ProductCandidate)
@@ -263,8 +266,7 @@ class DiscoverJob:
             if existing.status not in ["scored", "selected", "launched"]:
                 existing.status = "new"
             
-            # updated_at sera mis à jour automatiquement par le modèle
-            self.db.flush()
+            # COMMIT immédiat pour persister la mise à jour
             self.db.commit()
             
             return False  # Produit mis à jour
@@ -285,7 +287,7 @@ class DiscoverJob:
                 status="new",
             )
             self.db.add(new_candidate)
-            self.db.flush()
+            # COMMIT immédiat après chaque ajout pour éviter les batch INSERT
             self.db.commit()
             
             return True  # Produit créé
