@@ -11,7 +11,6 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import text
 
 from app.models.product_candidate import ProductCandidate
 from app.services.keepa_client import KeepaClient
@@ -231,10 +230,10 @@ class DiscoverJob:
 
     def _upsert_product(self, keepa_product, category_name: str) -> bool:
         """
-        Upsert un produit en utilisant PostgreSQL ON CONFLICT DO UPDATE.
+        Upsert un produit en utilisant l'ORM SQLAlchemy.
         
-        Cette méthode utilise du SQL brut via SQLAlchemy Core pour garantir
-        qu'il n'y aura jamais de batch INSERT et que l'upsert est natif.
+        Cette méthode utilise l'ORM pour gérer automatiquement les types et éviter
+        les problèmes de conversion. Plus simple et plus robuste que le SQL brut.
         
         Args:
             keepa_product: Produit Keepa à traiter.
@@ -247,88 +246,75 @@ class DiscoverJob:
             Le status est préservé si le produit a déjà été traité (scored, selected, launched),
             sinon il est mis à jour à "new".
         """
-        # Vérifier si le produit existe pour déterminer si c'est une création ou mise à jour
+        # Vérifier si le produit existe
         existing = (
             self.db.query(ProductCandidate)
             .filter(ProductCandidate.asin == keepa_product.asin)
             .first()
         )
         
-        # Préparer les données
-        asin = keepa_product.asin
-        product_id = existing.id if existing else uuid4()
-        raw_data_json = json.dumps(keepa_product.raw_data) if isinstance(keepa_product.raw_data, dict) else keepa_product.raw_data
-        
-        # Déterminer le status (préserver si déjà traité)
-        if existing and existing.status in ["scored", "selected", "launched"]:
-            new_status = existing.status
-        else:
-            new_status = "new"
-        
-        # Préparer created_at (préserver si existe, sinon NOW())
-        created_at = existing.created_at if existing else datetime.utcnow()
-        
-        # Construire la requête SQL avec ON CONFLICT DO UPDATE (solution native PostgreSQL)
-        # Cette requête garantit qu'il n'y aura jamais de UniqueViolation
-        # Utiliser bindparam avec types SQLAlchemy pour les conversions automatiques
+        # Préparer les données brutes
         raw_data_dict = keepa_product.raw_data if isinstance(keepa_product.raw_data, dict) else json.loads(keepa_product.raw_data) if isinstance(keepa_product.raw_data, str) else {}
         
-        sql_query = text("""
-            INSERT INTO product_candidates (
-                id, asin, title, category, source_marketplace, avg_price, bsr,
-                estimated_sales_per_day, reviews_count, rating, raw_keepa_data, status,
-                created_at, updated_at
-            ) VALUES (
-                :product_id, :asin, :title, :category, :source_marketplace, 
-                :avg_price, :bsr, :estimated_sales_per_day, :reviews_count, :rating, 
-                :raw_keepa_data, :status, 
-                :created_at, NOW()
+        if existing:
+            # Mise à jour du produit existant
+            existing.title = keepa_product.title
+            existing.category = category_name
+            existing.avg_price = float(keepa_product.avg_price) if keepa_product.avg_price else None
+            existing.bsr = keepa_product.bsr
+            existing.estimated_sales_per_day = float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None
+            existing.reviews_count = keepa_product.reviews_count
+            existing.rating = float(keepa_product.rating) if keepa_product.rating else None
+            existing.raw_keepa_data = raw_data_dict
+            existing.source_marketplace = "amazon_fr"
+            # Préserver le status si déjà traité
+            if existing.status not in ["scored", "selected", "launched"]:
+                existing.status = "new"
+            existing.updated_at = datetime.utcnow()
+            
+            try:
+                self.db.commit()
+                return False  # Mis à jour
+            except Exception as e:
+                self.db.rollback()
+                logger.error(f"Erreur lors de la mise à jour du produit {keepa_product.asin}: {str(e)}", exc_info=True)
+                raise
+        else:
+            # Création d'un nouveau produit
+            new_product = ProductCandidate(
+                id=uuid4(),
+                asin=keepa_product.asin,
+                title=keepa_product.title,
+                category=category_name,
+                source_marketplace="amazon_fr",
+                avg_price=float(keepa_product.avg_price) if keepa_product.avg_price else None,
+                bsr=keepa_product.bsr,
+                estimated_sales_per_day=float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None,
+                reviews_count=keepa_product.reviews_count,
+                rating=float(keepa_product.rating) if keepa_product.rating else None,
+                raw_keepa_data=raw_data_dict,
+                status="new",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
-            ON CONFLICT (asin) DO UPDATE SET
-                title = EXCLUDED.title,
-                category = EXCLUDED.category,
-                avg_price = EXCLUDED.avg_price,
-                bsr = EXCLUDED.bsr,
-                estimated_sales_per_day = EXCLUDED.estimated_sales_per_day,
-                reviews_count = EXCLUDED.reviews_count,
-                rating = EXCLUDED.rating,
-                raw_keepa_data = EXCLUDED.raw_keepa_data,
-                source_marketplace = EXCLUDED.source_marketplace,
-                status = CASE 
-                    WHEN product_candidates.status IN ('scored', 'selected', 'launched') 
-                    THEN product_candidates.status 
-                    ELSE EXCLUDED.status 
-                END,
-                updated_at = NOW()
-        """)
-        
-        # Préparer les paramètres avec types Python natifs
-        # psycopg2 et SQLAlchemy géreront automatiquement les conversions
-        params = {
-            "product_id": product_id,  # Passer directement l'UUID Python, psycopg2 le convertira
-            "asin": asin,
-            "title": keepa_product.title,
-            "category": category_name,
-            "source_marketplace": "amazon_fr",
-            "avg_price": float(keepa_product.avg_price) if keepa_product.avg_price else None,
-            "bsr": keepa_product.bsr,
-            "estimated_sales_per_day": float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None,
-            "reviews_count": keepa_product.reviews_count,
-            "rating": float(keepa_product.rating) if keepa_product.rating else None,
-            "raw_keepa_data": json.dumps(raw_data_dict),  # Passer en JSON string, PostgreSQL le convertira en JSONB
-            "status": new_status,
-            "created_at": created_at,
-        }
-        
-        # Exécuter l'upsert avec SQL brut - garanti d'éviter les batch INSERT
-        try:
-            self.db.execute(sql_query, params)
-            self.db.commit()
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"Erreur lors de l'upsert du produit {asin}: {str(e)}", exc_info=True)
-            raise
-        
-        # Retourner True si nouveau produit, False si mis à jour
-        return existing is None
+            
+            try:
+                self.db.add(new_product)
+                self.db.commit()
+                return True  # Créé
+            except IntegrityError as e:
+                # Si jamais une UniqueViolation se produit (cas de race condition)
+                if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
+                    self.db.rollback()
+                    logger.warning(f"Produit {keepa_product.asin} créé entre-temps, tentative de mise à jour")
+                    # Réessayer avec une mise à jour
+                    return self._upsert_product(keepa_product, category_name)
+                else:
+                    self.db.rollback()
+                    logger.error(f"Erreur d'intégrité lors de la création du produit {keepa_product.asin}: {str(e)}", exc_info=True)
+                    raise
+            except Exception as e:
+                self.db.rollback()
+                logger.error(f"Erreur lors de la création du produit {keepa_product.asin}: {str(e)}", exc_info=True)
+                raise
 
