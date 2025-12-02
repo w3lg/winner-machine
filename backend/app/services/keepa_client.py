@@ -176,55 +176,23 @@ class KeepaClient:
                 )
                 return self._mock_products(category_config, limit)
 
-            # Vérifier si la réponse est valide
-            if "products" not in data:
-                logger.warning(
-                    "Réponse Keepa invalide pour la catégorie %s: pas de champ 'products'",
-                    category_config.name,
-                )
-                return []
-
-            products = data.get("products", [])
-            if not products:
-                logger.info(
-                    "Aucun produit retourné par Keepa pour la catégorie %s",
-                    category_config.name,
-                )
-                return []
-
-            logger.info(
-                "Keepa a retourné %s produits pour la catégorie %s",
-                len(products),
-                category_config.name,
-            )
-
-            # Normaliser les produits
-            normalized = self._normalize_products(products, category_config)
-            return normalized
-
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                "Erreur HTTP Keepa pour la catégorie %s: %s %s",
-                category_config.name,
-                e.response.status_code,
-                e.response.text[:200],
-            )
-            return []
         except httpx.RequestError as e:
-            logger.error(
-                "Erreur de requête Keepa pour la catégorie %s: %s",
+            logger.warning(
+                "Erreur de requête Keepa pour la catégorie %s: %s. "
+                "Utilisation du mode mock enrichi",
                 category_config.name,
                 str(e),
             )
-            return []
+            return self._mock_products(category_config, limit)
         except Exception as e:
-            logger.error(
-                "Erreur inattendue lors de l'appel Keepa pour la catégorie %s: %s",
+            logger.warning(
+                "Erreur inattendue lors de l'appel Keepa pour la catégorie %s: %s. "
+                "Utilisation du mode mock enrichi",
                 category_config.name,
                 str(e),
                 exc_info=True,
             )
-            return []
+            return self._mock_products(category_config, limit)
 
     def _mock_products(
         self, category_config: CategoryConfig, limit: int
