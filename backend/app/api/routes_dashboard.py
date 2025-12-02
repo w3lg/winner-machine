@@ -90,21 +90,8 @@ async def get_winners(
     )
 
     try:
-        # Requête avec JOINs et filtrage du meilleur score par produit
-        # On utilise une sous-requête pour identifier le meilleur score (global_score max) par produit
-        # Ensuite on joint seulement les scores qui correspondent à ce meilleur score
-        
-        # Sous-requête : meilleur global_score par produit
-        max_scores_subquery = (
-            db.query(
-                ProductScore.product_candidate_id,
-                func.max(ProductScore.global_score).label("max_global_score")
-            )
-            .group_by(ProductScore.product_candidate_id)
-            .subquery()
-        )
-        
-        # Requête principale avec JOINs
+        # Requête principale avec JOINs simples
+        # On récupère tous les scores, puis on garde le meilleur par produit en Python
         query = (
             db.query(
                 ProductCandidate.id.label("product_id"),
@@ -124,13 +111,6 @@ async def get_winners(
             .join(
                 SourcingOption,
                 SourcingOption.id == ProductScore.sourcing_option_id,
-            )
-            .join(
-                max_scores_subquery,
-                and_(
-                    max_scores_subquery.c.product_candidate_id == ProductScore.product_candidate_id,
-                    max_scores_subquery.c.max_global_score == ProductScore.global_score,
-                ),
             )
         )
 
@@ -162,32 +142,24 @@ async def get_winners(
             desc(ProductScore.margin_percent),
         )
 
-        # Limiter les résultats
-        query = query.limit(limit)
+        # Trier par global_score décroissant, puis par margin_percent décroissant
+        # Cela permet de récupérer les meilleurs scores en premier
+        query = query.order_by(
+            desc(ProductScore.global_score),
+            desc(ProductScore.margin_percent),
+        )
 
-        # Exécuter la requête
+        # Exécuter la requête (sans limite pour l'instant, on limite après le groupement)
         results = query.all()
 
-        # Grouper par product_id pour éviter les doublons (si plusieurs scores ont le même max_score)
-        # On garde le meilleur score pour chaque produit (global_score max, puis margin_percent max)
+        # Grouper par product_id pour ne garder que le meilleur score par produit
+        # Comme les résultats sont triés par global_score décroissant, le premier pour chaque produit est le meilleur
         products_map = {}
         for row in results:
             product_id = row.product_id
             if product_id not in products_map:
                 products_map[product_id] = row
-            else:
-                # Si plusieurs scores existent, garder celui avec le meilleur global_score
-                # En cas d'égalité, garder celui avec le meilleur margin_percent
-                existing = products_map[product_id]
-                if (row.global_score is not None and existing.global_score is not None):
-                    if row.global_score > existing.global_score:
-                        products_map[product_id] = row
-                    elif row.global_score == existing.global_score:
-                        if (row.margin_percent is not None and existing.margin_percent is not None):
-                            if row.margin_percent > existing.margin_percent:
-                                products_map[product_id] = row
-                elif row.global_score is not None:
-                    products_map[product_id] = row
+            # Sinon, on ignore (on garde déjà le meilleur qui est venu en premier)
 
         # Convertir en modèles Pydantic
         items = []
