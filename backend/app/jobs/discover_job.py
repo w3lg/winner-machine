@@ -4,10 +4,14 @@ Job de découverte de produits - Module A.
 Récupère des produits depuis Keepa et les stocke en base.
 """
 import logging
+import json
 from typing import Dict, Set
+from uuid import uuid4
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy import text
 
 from app.models.product_candidate import ProductCandidate
 from app.services.keepa_client import KeepaClient
@@ -153,78 +157,14 @@ class DiscoverJob:
                     logger.debug(f"ASIN {asin} déjà traité dans cette exécution, skip")
                     continue
 
-                # Vérifier si le produit existe déjà en base
-                existing = (
-                    self.db.query(ProductCandidate)
-                    .filter(ProductCandidate.asin == asin)
-                    .first()
-                )
-
-                if existing:
-                    # Mettre à jour le produit existant
-                    existing.title = keepa_product.title
-                    existing.category = category_config.name
-                    existing.avg_price = keepa_product.avg_price
-                    existing.bsr = keepa_product.bsr
-                    existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
-                    existing.reviews_count = keepa_product.reviews_count
-                    existing.rating = keepa_product.rating
-                    existing.raw_keepa_data = keepa_product.raw_data
-                    existing.source_marketplace = "amazon_fr"
-                    # Ne pas changer le status si le produit a déjà été traité
-                    if existing.status not in ["scored", "selected", "launched"]:
-                        existing.status = "new"
-                    stats["updated"] += 1
-                else:
-                    # Créer un nouveau produit candidat
-                    new_candidate = ProductCandidate(
-                        asin=asin,
-                        title=keepa_product.title,
-                        category=category_config.name,
-                        source_marketplace="amazon_fr",
-                        avg_price=keepa_product.avg_price,
-                        bsr=keepa_product.bsr,
-                        estimated_sales_per_day=keepa_product.estimated_sales_per_day,
-                        reviews_count=keepa_product.reviews_count,
-                        rating=keepa_product.rating,
-                        raw_keepa_data=keepa_product.raw_data,
-                        status="new",
-                    )
-                    self.db.add(new_candidate)
+                # Utiliser PostgreSQL ON CONFLICT DO UPDATE pour un vrai upsert natif
+                # Cela évite complètement les problèmes de batch INSERT
+                is_new = self._upsert_product(keepa_product, category_config.name)
+                
+                if is_new:
                     stats["created"] += 1
-
-                # COMMIT IMMÉDIAT après chaque produit pour garantir qu'il n'y aura jamais de batch INSERT
-                try:
-                    self.db.commit()
-                except IntegrityError as commit_e:
-                    # Si erreur de contrainte unique au commit, le produit existe déjà
-                    if "product_candidates_asin_key" in str(commit_e.orig) or "asin" in str(commit_e.orig).lower():
-                        logger.debug(f"ASIN {asin} existe déjà (erreur au commit), rollback et mise à jour")
-                        self.db.rollback()
-                        # Retrouver le produit existant
-                        existing = (
-                            self.db.query(ProductCandidate)
-                            .filter(ProductCandidate.asin == asin)
-                            .first()
-                        )
-                        if existing:
-                            existing.title = keepa_product.title
-                            existing.category = category_config.name
-                            existing.avg_price = keepa_product.avg_price
-                            existing.bsr = keepa_product.bsr
-                            existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
-                            existing.reviews_count = keepa_product.reviews_count
-                            existing.rating = keepa_product.rating
-                            existing.raw_keepa_data = keepa_product.raw_data
-                            existing.source_marketplace = "amazon_fr"
-                            if existing.status not in ["scored", "selected", "launched"]:
-                                existing.status = "new"
-                            stats["updated"] += 1
-                            if stats["created"] > 0:
-                                stats["created"] -= 1
-                            self.db.commit()
-                    else:
-                        raise
+                else:
+                    stats["updated"] += 1
 
                 # Marquer cet ASIN comme traité
                 self._processed_asins.add(asin)
@@ -235,12 +175,86 @@ class DiscoverJob:
                     f"Erreur lors du traitement du produit {keepa_product.asin}: {str(e)}",
                     exc_info=True,
                 )
-                try:
-                    self.db.rollback()
-                except Exception:
-                    pass
                 # Continue avec le produit suivant
                 continue
 
         return stats
+
+    def _upsert_product(self, keepa_product, category_name: str) -> bool:
+        """
+        Upsert un produit en utilisant PostgreSQL ON CONFLICT DO UPDATE.
+        
+        Returns:
+            True si le produit a été créé, False s'il a été mis à jour.
+        """
+        # Vérifier si le produit existe déjà pour déterminer si on crée ou met à jour
+        existing = (
+            self.db.query(ProductCandidate)
+            .filter(ProductCandidate.asin == keepa_product.asin)
+            .first()
+        )
+        
+        # Préparer les données pour l'upsert
+        product_id = existing.id if existing else uuid4()
+        raw_data_json = json.dumps(keepa_product.raw_data) if isinstance(keepa_product.raw_data, dict) else keepa_product.raw_data
+        
+        # Déterminer le status (préserver le status existant si le produit a déjà été traité)
+        if existing and existing.status in ["scored", "selected", "launched"]:
+            new_status = existing.status
+        else:
+            new_status = "new"
+        
+        # Préparer created_at (préserver si existe, sinon NOW())
+        created_at = existing.created_at if existing else datetime.utcnow()
+        
+        # Construire la requête SQL avec ON CONFLICT DO UPDATE
+        sql = text("""
+            INSERT INTO product_candidates (
+                id, asin, title, category, source_marketplace, avg_price, bsr,
+                estimated_sales_per_day, reviews_count, rating, raw_keepa_data, status,
+                created_at, updated_at
+            ) VALUES (
+                :id, :asin, :title, :category, :source_marketplace, :avg_price, :bsr,
+                :estimated_sales_per_day, :reviews_count, :rating, :raw_keepa_data::jsonb, :status,
+                :created_at, NOW()
+            )
+            ON CONFLICT (asin) DO UPDATE SET
+                title = EXCLUDED.title,
+                category = EXCLUDED.category,
+                avg_price = EXCLUDED.avg_price,
+                bsr = EXCLUDED.bsr,
+                estimated_sales_per_day = EXCLUDED.estimated_sales_per_day,
+                reviews_count = EXCLUDED.reviews_count,
+                rating = EXCLUDED.rating,
+                raw_keepa_data = EXCLUDED.raw_keepa_data,
+                source_marketplace = EXCLUDED.source_marketplace,
+                status = CASE 
+                    WHEN product_candidates.status IN ('scored', 'selected', 'launched') 
+                    THEN product_candidates.status 
+                    ELSE EXCLUDED.status 
+                END,
+                updated_at = NOW()
+        """)
+        
+        params = {
+            "id": product_id,
+            "asin": keepa_product.asin,
+            "title": keepa_product.title,
+            "category": category_name,
+            "source_marketplace": "amazon_fr",
+            "avg_price": float(keepa_product.avg_price) if keepa_product.avg_price else None,
+            "bsr": keepa_product.bsr,
+            "estimated_sales_per_day": float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None,
+            "reviews_count": keepa_product.reviews_count,
+            "rating": float(keepa_product.rating) if keepa_product.rating else None,
+            "raw_keepa_data": raw_data_json,
+            "status": new_status,
+            "created_at": created_at,
+        }
+        
+        # Exécuter l'upsert
+        self.db.execute(sql, params)
+        self.db.commit()
+        
+        return existing is None
 
