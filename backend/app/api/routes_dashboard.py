@@ -186,6 +186,9 @@ async def get_winners(
             key=lambda x: (x.global_score or Decimal("0"), x.margin_percent or Decimal("0")),
             reverse=True
         )
+        
+        # Appliquer la limite après le groupement
+        items = items[:limit]
 
         filters_applied = {
             "decision": decision,
