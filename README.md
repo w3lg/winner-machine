@@ -133,4 +133,3 @@ Propriétaire - w3lg
 ---
 
 *Version 1.0.0 - Décembre 2025*
-
