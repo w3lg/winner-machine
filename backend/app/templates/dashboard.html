@@ -205,7 +205,7 @@
             <div class="job-card" style="grid-column: span 2;">
                 <h3>🚀 Pipeline Complet A→B→C→D/E</h3>
                 <p>Lance tous les jobs dans l'ordre : Discover → Sourcing → Scoring → Listing</p>
-                <button class="btn btn-pipeline" onclick="runJob('pipeline_abcde')" id="btn-pipeline">
+                <button class="btn btn-pipeline" onclick="runJob('pipeline_abcde')" id="btn-pipeline_abcde">
                     Lancer Pipeline Complet
                 </button>
             </div>
@@ -219,8 +219,22 @@
 
     <script>
         async function runJob(jobName) {
+            console.log('Lancement du job:', jobName);
             const resultEl = document.getElementById('result');
+            if (!resultEl) {
+                console.error('Élément result non trouvé');
+                return;
+            }
+            
             const btnEl = document.getElementById(`btn-${jobName}`);
+            if (!btnEl) {
+                console.error(`Bouton btn-${jobName} non trouvé`);
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nBouton non trouvé: btn-${jobName}`;
+                return;
+            }
+            
+            // Sauvegarder le texte original du bouton
+            const originalText = btnEl.textContent || btnEl.innerHTML;
             
             // Désactiver le bouton et afficher le loading
             btnEl.disabled = true;
@@ -228,45 +242,67 @@
             resultEl.textContent = `Lancement du job: ${jobName}...\n\nVeuillez patienter...`;
 
             try {
+                console.log(`Appel de /ui/run/${jobName}`);
+                // Timeout plus long pour le pipeline complet (5 minutes)
+                const timeout = jobName === 'pipeline_abcde' ? 300000 : 120000;
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeout);
+                
                 const response = await fetch(`/ui/run/${jobName}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
+                    signal: controller.signal,
                 });
+                
+                clearTimeout(timeoutId);
+
+                console.log('Réponse reçue:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+                }
 
                 const data = await response.json();
+                console.log('Données reçues:', data);
                 
                 // Afficher le résultat formaté
-                resultEl.textContent = JSON.stringify(data, null, 2);
+                const formattedResult = JSON.stringify(data, null, 2);
                 
                 // Afficher un statut visuel
                 if (data.success) {
-                    resultEl.innerHTML = `<span class="status success">✓ Succès</span>\n\n` + 
-                        JSON.stringify(data, null, 2);
+                    resultEl.innerHTML = `<span class="status success">✓ Succès</span>\n\n<pre>${formattedResult}</pre>`;
                 } else {
-                    resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\n` + 
-                        JSON.stringify(data, null, 2);
+                    resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\n<pre>${formattedResult}</pre>`;
                 }
 
             } catch (error) {
-                resultEl.textContent = `Erreur: ${error.message}\n\n${error.stack}`;
-                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nErreur: ${error.message}`;
+                console.error('Erreur lors de l\'exécution:', error);
+                const errorMessage = error.message || 'Erreur inconnue';
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nErreur: ${errorMessage}`;
+                if (error.stack) {
+                    console.error('Stack trace:', error.stack);
+                }
             } finally {
                 // Réactiver le bouton
-                btnEl.disabled = false;
-                
-                // Restaurer le texte du bouton
-                const buttonTexts = {
-                    'discover': 'Lancer Discover',
-                    'sourcing': 'Lancer Sourcing',
-                    'scoring': 'Lancer Scoring',
-                    'listing': 'Lancer Listing',
-                    'pipeline_abcde': 'Lancer Pipeline Complet'
-                };
-                btnEl.innerHTML = buttonTexts[jobName];
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = originalText;
+                }
             }
         }
+        
+        // Ajouter des logs au chargement de la page
+        console.log('Dashboard chargé');
+        console.log('Boutons disponibles:', {
+            'discover': document.getElementById('btn-discover') ? '✓' : '✗',
+            'sourcing': document.getElementById('btn-sourcing') ? '✓' : '✗',
+            'scoring': document.getElementById('btn-scoring') ? '✓' : '✗',
+            'listing': document.getElementById('btn-listing') ? '✓' : '✗',
+            'pipeline_abcde': document.getElementById('btn-pipeline_abcde') ? '✓' : '✗'
+        });
     </script>
 </body>
 </html>
