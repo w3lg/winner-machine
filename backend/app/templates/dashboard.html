@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Winner Machine - Dashboard de Contrôle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+        }
+
+        .jobs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .job-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .job-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .job-card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .job-card p {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            width: 100%;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #5568d3;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-pipeline {
+            background: #764ba2;
+        }
+
+        .btn-pipeline:hover {
+            background: #5a3578;
+        }
+
+        .result-container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+        }
+
+        .result-container h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        #result {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏆 Winner Machine v1</h1>
+            <p>Dashboard de contrôle - Lancement des jobs</p>
+        </div>
+
+        <div class="jobs-grid">
+            <div class="job-card">
+                <h3>🔍 Module A : Discover</h3>
+                <p>Découvre de nouveaux produits depuis Keepa API</p>
+                <button class="btn" onclick="runJob('discover')" id="btn-discover">
+                    Lancer Discover
+                </button>
+            </div>
+
+            <div class="job-card">
+                <h3>🏭 Module B : Sourcing</h3>
+                <p>Trouve des options de sourcing pour les produits</p>
+                <button class="btn" onclick="runJob('sourcing')" id="btn-sourcing">
+                    Lancer Sourcing
+                </button>
+            </div>
+
+            <div class="job-card">
+                <h3>📊 Module C : Scoring</h3>
+                <p>Calcule les scores de rentabilité</p>
+                <button class="btn" onclick="runJob('scoring')" id="btn-scoring">
+                    Lancer Scoring
+                </button>
+            </div>
+
+            <div class="job-card">
+                <h3>📝 Modules D/E : Listings</h3>
+                <p>Génère des templates de listings</p>
+                <button class="btn" onclick="runJob('listing')" id="btn-listing">
+                    Lancer Listing
+                </button>
+            </div>
+
+            <div class="job-card" style="grid-column: span 2;">
+                <h3>🚀 Pipeline Complet A→B→C→D/E</h3>
+                <p>Lance tous les jobs dans l'ordre : Discover → Sourcing → Scoring → Listing</p>
+                <button class="btn btn-pipeline" onclick="runJob('pipeline_abcde')" id="btn-pipeline">
+                    Lancer Pipeline Complet
+                </button>
+            </div>
+        </div>
+
+        <div class="result-container">
+            <h2>📋 Résultat</h2>
+            <pre id="result">Aucune exécution pour le moment. Cliquez sur un bouton pour lancer un job.</pre>
+        </div>
+    </div>
+
+    <script>
+        async function runJob(jobName) {
+            const resultEl = document.getElementById('result');
+            const btnEl = document.getElementById(`btn-${jobName}`);
+            
+            // Désactiver le bouton et afficher le loading
+            btnEl.disabled = true;
+            btnEl.innerHTML = 'Exécution en cours... <span class="loading"></span>';
+            resultEl.textContent = `Lancement du job: ${jobName}...\n\nVeuillez patienter...`;
+
+            try {
+                const response = await fetch(`/ui/run/${jobName}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                const data = await response.json();
+                
+                // Afficher le résultat formaté
+                resultEl.textContent = JSON.stringify(data, null, 2);
+                
+                // Afficher un statut visuel
+                if (data.success) {
+                    resultEl.innerHTML = `<span class="status success">✓ Succès</span>\n\n` + 
+                        JSON.stringify(data, null, 2);
+                } else {
+                    resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\n` + 
+                        JSON.stringify(data, null, 2);
+                }
+
+            } catch (error) {
+                resultEl.textContent = `Erreur: ${error.message}\n\n${error.stack}`;
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nErreur: ${error.message}`;
+            } finally {
+                // Réactiver le bouton
+                btnEl.disabled = false;
+                
+                // Restaurer le texte du bouton
+                const buttonTexts = {
+                    'discover': 'Lancer Discover',
+                    'sourcing': 'Lancer Sourcing',
+                    'scoring': 'Lancer Scoring',
+                    'listing': 'Lancer Listing',
+                    'pipeline_abcde': 'Lancer Pipeline Complet'
+                };
+                btnEl.innerHTML = buttonTexts[jobName];
+            }
+        }
+    </script>
+</body>
+</html>
+
