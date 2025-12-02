@@ -39,7 +39,7 @@
         ┌──────────┴──────────────────┐
         │                             │
 ┌───────┴────────┐         ┌──────────┴────────┐
-│ marcus.wlg.fr  │         │  n8n.w3lg.fr      │
+│ marcus.w3lg.fr  │         │  n8n.w3lg.fr      │
 │   Backend      │         │   n8n             │
 │   + Frontend   │◄────────┤   (Workflows)     │
 └───────┬────────┘         └───────────────────┘
@@ -73,25 +73,25 @@
 - Redirection HTTP → HTTPS
 - Certificats SSL via Let's Encrypt (certbot)
 - Configuration des domaines :
-  - `marcus.wlg.fr` → Backend
+  - `marcus.w3lg.fr` → Backend
   - `n8n.w3lg.fr` → n8n
 
 **Exemple de configuration** :
 
 ```nginx
-# marcus.wlg.fr
+# marcus.w3lg.fr
 server {
     listen 80;
-    server_name marcus.wlg.fr;
+    server_name marcus.w3lg.fr;
     return 301 https://$server_name$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name marcus.wlg.fr;
+    server_name marcus.w3lg.fr;
 
-    ssl_certificate /etc/letsencrypt/live/marcus.wlg.fr/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/marcus.wlg.fr/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/marcus.w3lg.fr/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/marcus.w3lg.fr/privkey.pem;
 
     location / {
         proxy_pass http://localhost:3000;  # Backend

@@ -65,7 +65,7 @@
 ### 7. Configuration nginx ✅
 
 - ✅ Configurations créées :
-  - `/etc/nginx/sites-available/marcus.wlg.fr`
+  - `/etc/nginx/sites-available/marcus.w3lg.fr`
   - `/etc/nginx/sites-available/n8n.w3lg.fr`
 - ✅ Liens symboliques créés dans `sites-enabled`
 - ✅ Configuration testée : `nginx -t` → **OK**
@@ -76,7 +76,7 @@
 - ⚠️ **À FAIRE** : Obtenir les certificats Let's Encrypt
 - ⚠️ Les configurations nginx sont en HTTP (80) pour l'instant
 - ⚠️ Les DNS doivent pointer vers `135.181.253.60` :
-  - `marcus.wlg.fr` → 135.181.253.60
+  - `marcus.w3lg.fr` → 135.181.253.60
   - `n8n.w3lg.fr` → 135.181.253.60
 
 ---
@@ -131,7 +131,7 @@ docker compose exec app alembic upgrade head
 
 ### En externe (une fois DNS configurés)
 
-- **Backend API** : `http://marcus.wlg.fr` (puis HTTPS après certificats)
+- **Backend API** : `http://marcus.w3lg.fr` (puis HTTPS après certificats)
 - **n8n** : `http://n8n.w3lg.fr` (puis HTTPS après certificats)
 
 ---
@@ -144,7 +144,7 @@ Vérifier que les DNS pointent vers le serveur :
 
 ```bash
 # Vérifier les DNS depuis votre machine
-nslookup marcus.wlg.fr
+nslookup marcus.w3lg.fr
 nslookup n8n.w3lg.fr
 ```
 
@@ -159,7 +159,7 @@ ssh root@135.181.253.60
 cd /root/winner-machine/infra/nginx
 
 # Obtenir les certificats
-certbot --nginx -d marcus.wlg.fr
+certbot --nginx -d marcus.w3lg.fr
 certbot --nginx -d n8n.w3lg.fr
 
 # Vérifier
@@ -172,7 +172,7 @@ systemctl reload nginx
 Les fichiers dans `infra/nginx/` contiennent les configurations complètes avec HTTPS. Une fois les certificats obtenus, remplacer les configs temporaires :
 
 ```bash
-cp /root/winner-machine/infra/nginx/marcus_wlg_fr.conf /etc/nginx/sites-available/marcus.wlg.fr
+cp /root/winner-machine/infra/nginx/marcus_wlg_fr.conf /etc/nginx/sites-available/marcus.w3lg.fr
 cp /root/winner-machine/infra/nginx/n8n_w3lg_fr.conf /etc/nginx/sites-available/n8n.w3lg.fr
 nginx -t
 systemctl reload nginx

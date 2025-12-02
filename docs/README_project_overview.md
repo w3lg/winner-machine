@@ -34,7 +34,7 @@ Pour cette première version, tout tourne sur un **serveur unique** :
 - **IP** : `135.181.253.60`
 - **SSH** : Port 22
 - **Domaines** :
-  - `https://marcus.wlg.fr` → Backend / Interface par défaut
+  - `https://marcus.w3lg.fr` → Backend / Interface par défaut
   - `https://n8n.w3lg.fr` → n8n (automation workflows)
 - **Certificats** : Let's Encrypt via nginx + certbot
 
@@ -138,7 +138,7 @@ Ce document donne une vue d'ensemble business et technique du projet sans entrer
 - **Documentation technique** : `docs/architecture_v1.md`
 - **Plan de développement** : `docs/linear_epics.md`
 - **Repository GitHub** : https://github.com/w3lg/winner-machine
-- **Serveur** : https://marcus.wlg.fr
+- **Serveur** : https://marcus.w3lg.fr
 - **n8n** : https://n8n.w3lg.fr
 
 ## 📝 Notes importantes

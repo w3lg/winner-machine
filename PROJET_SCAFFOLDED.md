@@ -32,7 +32,7 @@ winner-machine/
 ├── infra/
 │   ├── docker-compose.yml ✅ Services db, app, n8n
 │   ├── nginx/
-│   │   └── default.conf   ✅ Config nginx pour marcus.wlg.fr et n8n.w3lg.fr
+│   │   └── default.conf   ✅ Config nginx pour marcus.w3lg.fr et n8n.w3lg.fr
 │   └── sql/
 │       └── init.sql       ✅ Script SQL optionnel
 │
@@ -102,7 +102,7 @@ winner-machine/
 
 **Configuration** :
 - ✅ Redirections HTTP → HTTPS
-- ✅ Configuration SSL pour marcus.wlg.fr (Backend)
+- ✅ Configuration SSL pour marcus.w3lg.fr (Backend)
 - ✅ Configuration SSL pour n8n.w3lg.fr
 - ✅ WebSocket support pour n8n
 - ✅ Headers de sécurité

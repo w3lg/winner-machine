@@ -39,7 +39,7 @@ Le workflow utilise par défaut `http://app:8000` (communication interne Docker)
 1. Ouvrir le workflow importé
 2. Cliquer sur le nœud **"HTTP Request - Discover Job"**
 3. Modifier l'URL :
-   - **Option 1** : `https://marcus.wlg.fr/api/v1/jobs/discover/run`
+   - **Option 1** : `https://marcus.w3lg.fr/api/v1/jobs/discover/run`
    - **Option 2** : Garder `http://app:8000/api/v1/jobs/discover/run` (si n8n dans le même docker-compose)
 4. Sauvegarder
 

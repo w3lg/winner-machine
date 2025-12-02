@@ -6,7 +6,7 @@
 
 | Composant | Statut | URL / Détails |
 |-----------|--------|---------------|
-| **Backend FastAPI** | ✅ Actif | https://marcus.wlg.fr |
+| **Backend FastAPI** | ✅ Actif | https://marcus.w3lg.fr |
 | **PostgreSQL** | ✅ Actif | Port interne 5432 |
 | **n8n** | ✅ Actif | https://n8n.w3lg.fr |
 | **Module A (Discoverer)** | ✅ Déployé | Endpoint: `/api/v1/jobs/discover/run` |
@@ -15,7 +15,7 @@
 | **Workflow n8n Pipeline A→B→C** | ✅ Actif | ID: `wlaYVQkkS52IZcIg` - Daily à 03:15 |
 | **Workflow n8n Module A seul** | ❌ Désactivé | ID: `IgEn1CU6IUTbK09M` (conservé pour tests manuels) |
 | **Nginx** | ✅ Configuré | HTTPS avec Let's Encrypt |
-| **SSL Certificates** | ✅ Valides | marcus.wlg.fr & n8n.w3lg.fr |
+| **SSL Certificates** | ✅ Valides | marcus.w3lg.fr & n8n.w3lg.fr |
 
 ## 🚀 Services Docker
 
@@ -44,9 +44,9 @@ Tous les services Docker sont opérationnels :
 
 ## 🔗 URLs d'accès
 
-- **Backend API** : https://marcus.wlg.fr
-  - Health check : https://marcus.wlg.fr/health
-  - API docs : https://marcus.wlg.fr/docs
+- **Backend API** : https://marcus.w3lg.fr
+  - Health check : https://marcus.w3lg.fr/health
+  - API docs : https://marcus.w3lg.fr/docs
 - **n8n** : https://n8n.w3lg.fr
 
 ## 📝 Commandes utiles
@@ -73,19 +73,19 @@ docker-compose logs db --tail 50
 ### Tester les endpoints
 ```bash
 # Health check
-curl https://marcus.wlg.fr/health
+curl https://marcus.w3lg.fr/health
 
 # Découvrir des produits (Module A)
-curl -X POST https://marcus.wlg.fr/api/v1/jobs/discover/run
+curl -X POST https://marcus.w3lg.fr/api/v1/jobs/discover/run
 
 # Lancer le sourcing (Module B)
-curl -X POST https://marcus.wlg.fr/api/v1/jobs/sourcing/run
+curl -X POST https://marcus.w3lg.fr/api/v1/jobs/sourcing/run
 
 # Lancer le scoring (Module C)
-curl -X POST https://marcus.wlg.fr/api/v1/jobs/scoring/run
+curl -X POST https://marcus.w3lg.fr/api/v1/jobs/scoring/run
 
 # Voir les meilleurs scores
-curl "https://marcus.wlg.fr/api/v1/products/scores/top?decision=A_launch&limit=10"
+curl "https://marcus.w3lg.fr/api/v1/products/scores/top?decision=A_launch&limit=10"
 ```
 
 ## 🎯 Prochaines étapes

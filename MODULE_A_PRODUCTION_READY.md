@@ -169,12 +169,12 @@ docker-compose exec app alembic upgrade head
 cd /root/winner-machine/infra/nginx
 cp marcus_wlg_fr.conf /etc/nginx/sites-available/
 cp n8n_w3lg_fr.conf /etc/nginx/sites-available/
-ln -sf /etc/nginx/sites-available/marcus.wlg.fr /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/marcus.w3lg.fr /etc/nginx/sites-enabled/
 ln -sf /etc/nginx/sites-available/n8n.w3lg.fr /etc/nginx/sites-enabled/
 nginx -t
 
 # Certificats SSL
-certbot --nginx -d marcus.wlg.fr
+certbot --nginx -d marcus.w3lg.fr
 certbot --nginx -d n8n.w3lg.fr
 systemctl reload nginx
 ```

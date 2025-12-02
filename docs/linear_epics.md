@@ -29,14 +29,14 @@ Chaque epic correspond à une phase de développement et contient des **tâches 
 #### WM-0.2 : Installation et configuration nginx
 - [ ] Installer nginx
 - [ ] Configurer les domaines :
-  - [ ] `marcus.wlg.fr` → Backend
+  - [ ] `marcus.w3lg.fr` → Backend
   - [ ] `n8n.w3lg.fr` → n8n
 - [ ] Configurer les redirections HTTP → HTTPS
 - [ ] Tester la configuration nginx
 
 #### WM-0.3 : Installation et configuration certbot
 - [ ] Installer certbot
-- [ ] Obtenir les certificats SSL pour marcus.wlg.fr
+- [ ] Obtenir les certificats SSL pour marcus.w3lg.fr
 - [ ] Obtenir les certificats SSL pour n8n.w3lg.fr
 - [ ] Configurer le renouvellement automatique
 - [ ] Vérifier les certificats
@@ -157,7 +157,7 @@ Chaque epic correspond à une phase de développement et contient des **tâches 
 #### WM-1.10 : Déploiement production ✅
 - [x] Script de déploiement (`deploy_to_marcus.sh`)
 - [x] Documentation déploiement (`DEPLOIEMENT_MARCUS.md`)
-- [x] Configuration nginx pour marcus.wlg.fr et n8n.w3lg.fr
+- [x] Configuration nginx pour marcus.w3lg.fr et n8n.w3lg.fr
 - [x] Guide Let's Encrypt et certificats SSL
 
 **Statut : ✅ TERMINÉ (Production Ready V1)**

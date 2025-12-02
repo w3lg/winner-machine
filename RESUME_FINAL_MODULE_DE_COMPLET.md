@@ -58,23 +58,23 @@ Les Modules D (Listings Brandables) et E (Listings Non-Brandables) ont été com
 ### 1. POST `/api/v1/jobs/listing/generate_for_selected`
 - **Usage** : Lance le job de génération de listings pour tous les produits avec status="selected" sans listing
 - **Réponse** : Stats (products_processed, listings_created, products_without_sourcing_or_listing)
-- **Exemple** : `curl -X POST https://marcus.wlg.fr/api/v1/jobs/listing/generate_for_selected`
+- **Exemple** : `curl -X POST https://marcus.w3lg.fr/api/v1/jobs/listing/generate_for_selected`
 
 ### 2. GET `/api/v1/products/{product_id}/listing_templates`
 - **Usage** : Récupère tous les templates de listing pour un produit candidat
 - **Réponse** : Liste de ListingTemplateOut avec détails complets
-- **Exemple** : `curl https://marcus.wlg.fr/api/v1/products/{PRODUCT_ID}/listing_templates`
+- **Exemple** : `curl https://marcus.w3lg.fr/api/v1/products/{PRODUCT_ID}/listing_templates`
 
 ### 3. GET `/api/v1/listings/top_drafts?limit=20`
 - **Usage** : Récupère les listings en draft pour produits sélectionnés, triés par date DESC
 - **Query params** : `limit` (int, default=20)
-- **Exemple** : `curl "https://marcus.wlg.fr/api/v1/listings/top_drafts?limit=10"`
+- **Exemple** : `curl "https://marcus.w3lg.fr/api/v1/listings/top_drafts?limit=10"`
 
 ### 4. POST `/api/v1/listings/export_csv`
 - **Usage** : Exporte des listings en format CSV
 - **Body** : `{"listing_ids": [...]}` OU `{"export_all_drafts": true}`
 - **Réponse** : Fichier CSV téléchargeable
-- **Exemple** : `curl -X POST -H "Content-Type: application/json" -d '{"export_all_drafts": true}' https://marcus.wlg.fr/api/v1/listings/export_csv`
+- **Exemple** : `curl -X POST -H "Content-Type: application/json" -d '{"export_all_drafts": true}' https://marcus.w3lg.fr/api/v1/listings/export_csv`
 
 ---
 

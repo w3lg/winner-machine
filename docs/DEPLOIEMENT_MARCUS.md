@@ -143,11 +143,11 @@ Sur le serveur :
 cd /root/winner-machine/infra/nginx
 
 # Copier vers sites-available
-cp marcus_wlg_fr.conf /etc/nginx/sites-available/marcus.wlg.fr
+cp marcus_wlg_fr.conf /etc/nginx/sites-available/marcus.w3lg.fr
 cp n8n_w3lg_fr.conf /etc/nginx/sites-available/n8n.w3lg.fr
 
 # Créer les liens symboliques vers sites-enabled
-ln -sf /etc/nginx/sites-available/marcus.wlg.fr /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/marcus.w3lg.fr /etc/nginx/sites-enabled/
 ln -sf /etc/nginx/sites-available/n8n.w3lg.fr /etc/nginx/sites-enabled/
 
 # Vérifier la configuration nginx
@@ -156,7 +156,7 @@ nginx -t
 
 ### 2. Obtenir les certificats Let's Encrypt
 
-#### Pour marcus.wlg.fr
+#### Pour marcus.w3lg.fr
 
 ```bash
 # Installer certbot si nécessaire
@@ -164,7 +164,7 @@ apt-get update
 apt-get install certbot python3-certbot-nginx
 
 # Obtenir le certificat
-certbot --nginx -d marcus.wlg.fr
+certbot --nginx -d marcus.w3lg.fr
 
 # Suivre les instructions :
 # - Email : votre email
@@ -203,7 +203,7 @@ systemctl reload nginx
 
 ```bash
 # Backend
-curl https://marcus.wlg.fr/health
+curl https://marcus.w3lg.fr/health
 
 # n8n (nécessite authentification)
 curl https://n8n.w3lg.fr
@@ -232,7 +232,7 @@ docker-compose logs -f n8n
 curl -X POST http://localhost:8000/api/v1/jobs/discover/run
 
 # Ou depuis l'extérieur (si nginx configuré)
-curl -X POST https://marcus.wlg.fr/api/v1/jobs/discover/run
+curl -X POST https://marcus.w3lg.fr/api/v1/jobs/discover/run
 ```
 
 ### 3. Vérifier les données en base
@@ -315,8 +315,8 @@ Le fichier `.env` contient des informations sensibles. Assurez-vous :
 
 ## 🔗 Liens utiles
 
-- **Backend** : https://marcus.wlg.fr
-- **Documentation API** : https://marcus.wlg.fr/docs (si DEBUG=true)
+- **Backend** : https://marcus.w3lg.fr
+- **Documentation API** : https://marcus.w3lg.fr/docs (si DEBUG=true)
 - **n8n** : https://n8n.w3lg.fr
 
 ---

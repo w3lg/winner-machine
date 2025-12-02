@@ -33,7 +33,7 @@ Le projet est découpé en **7 modules** interconnectés :
 - **Workflows** : n8n
 - **Reverse Proxy** : nginx
 - **Domaines** :
-  - `marcus.wlg.fr` → Backend
+  - `marcus.w3lg.fr` → Backend
   - `n8n.w3lg.fr` → n8n
 
 ## 🚀 Démarrage rapide
