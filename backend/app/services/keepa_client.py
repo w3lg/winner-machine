@@ -85,26 +85,86 @@ class KeepaClient:
                 limit,
             )
 
-            # Appel à l'API Keepa
-            # Endpoint: https://api.keepa.com/product
+            # Appel à l'API Keepa pour récupérer les bestsellers par catégorie
+            # Endpoint: https://api.keepa.com/bestsellers
             # domain=1 = Amazon FR
-            # stats=180 = statistiques sur 180 jours (6 mois)
             params = {
                 "key": self.api_key,
                 "domain": 1,  # 1 = Amazon FR
                 "category": str(category_config.id),
-                "stats": 180,  # 6 mois de statistiques
-                "rating": 3.0,  # Note minimum
-                "last": limit,  # Nombre de produits à récupérer
+                "range": min(limit, 200),  # Nombre de produits (max 200)
             }
 
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.get(
-                    f"{self.base_url}/product",
-                    params=params,
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    response = client.get(
+                        f"{self.base_url}/bestsellers",
+                        params=params,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                # Vérifier si la réponse contient des ASINs
+                if "asinList" not in data or not data.get("asinList"):
+                    logger.warning(
+                        "Aucun ASIN retourné par Keepa bestsellers pour la catégorie %s",
+                        category_config.name,
+                    )
+                    return []
+
+                asin_list = data["asinList"][:limit]  # Limiter au nombre demandé
+                logger.info(
+                    "Keepa bestsellers a retourné %s ASINs pour la catégorie %s",
+                    len(asin_list),
+                    category_config.name,
                 )
-                response.raise_for_status()
-                data = response.json()
+
+                # Récupérer les détails de chaque produit via l'endpoint /product
+                products = []
+                batch_size = 100  # Keepa permet jusqu'à 100 ASINs par requête
+                
+                for i in range(0, len(asin_list), batch_size):
+                    batch_asins = asin_list[i:i + batch_size]
+                    asin_string = ",".join(batch_asins)
+                    
+                    product_params = {
+                        "key": self.api_key,
+                        "domain": 1,
+                        "asin": asin_string,
+                        "stats": 180,
+                    }
+                    
+                    with httpx.Client(timeout=self.timeout) as client:
+                        batch_response = client.get(
+                            f"{self.base_url}/product",
+                            params=product_params,
+                        )
+                        batch_response.raise_for_status()
+                        batch_data = batch_response.json()
+                        
+                        if "products" in batch_data:
+                            products.extend(batch_data["products"])
+
+                if not products:
+                    logger.warning(
+                        "Aucun produit détaillé retourné pour les ASINs de la catégorie %s",
+                        category_config.name,
+                    )
+                    return []
+
+                # Normaliser les produits
+                normalized = self._normalize_products(products, category_config)
+                return normalized
+
+            except httpx.HTTPStatusError as e:
+                # Si /bestsellers ne fonctionne pas, essayer une autre approche
+                logger.warning(
+                    "Endpoint /bestsellers non disponible ou erreur HTTP %s. "
+                    "Utilisation du mode mock enrichi pour la catégorie %s",
+                    e.response.status_code,
+                    category_config.name,
+                )
+                return self._mock_products(category_config, limit)
 
             # Vérifier si la réponse est valide
             if "products" not in data:
