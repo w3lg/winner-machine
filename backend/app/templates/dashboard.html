@@ -160,6 +160,92 @@
             background: #f8d7da;
             color: #721c24;
         }
+
+        .winners-section {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 30px;
+        }
+
+        .filters-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-group label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95em;
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .winners-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+
+        .winners-table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+
+        .winners-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .winners-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .winners-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading-winners {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
     </style>
 </head>
 <body>
@@ -214,6 +300,75 @@
         <div class="result-container">
             <h2>📋 Résultat</h2>
             <pre id="result">Aucune exécution pour le moment. Cliquez sur un bouton pour lancer un job.</pre>
+        </div>
+
+        <div class="winners-section">
+            <h2>🏅 Produits Qualifiés (Winners)</h2>
+            
+            <div class="filters-form">
+                <div class="filter-group">
+                    <label for="filter-decision">Décision</label>
+                    <select id="filter-decision">
+                        <option value="A_launch">A_launch</option>
+                        <option value="B_review">B_review</option>
+                        <option value="C_drop">C_drop</option>
+                        <option value="Tous">Tous</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-min-margin">Marge min. (%)</label>
+                    <input type="number" id="filter-min-margin" placeholder="20" step="0.1" min="0">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-min-score">Score min.</label>
+                    <input type="number" id="filter-min-score" placeholder="50" step="0.1" min="0">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-min-sales">Ventes/jour min.</label>
+                    <input type="number" id="filter-min-sales" placeholder="1" step="0.1" min="0">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-limit">Limite</label>
+                    <input type="number" id="filter-limit" value="50" min="1" max="500">
+                </div>
+            </div>
+            
+            <div class="filter-buttons">
+                <button class="btn" onclick="applyFilters()">Appliquer filtres</button>
+                <button class="btn" onclick="resetFilters()">Reset filtres par défaut</button>
+            </div>
+            
+            <div id="winners-loading" class="loading-winners" style="display: none;">
+                Chargement des produits...
+            </div>
+            
+            <table class="winners-table" id="winners-table" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>ASIN</th>
+                        <th>Titre</th>
+                        <th>Catégorie</th>
+                        <th>Fournisseur</th>
+                        <th>Prix achat</th>
+                        <th>Prix vente</th>
+                        <th>Marge €</th>
+                        <th>Marge %</th>
+                        <th>Ventes/jour</th>
+                        <th>Score</th>
+                        <th>Decision</th>
+                    </tr>
+                </thead>
+                <tbody id="winners-tbody">
+                </tbody>
+            </table>
+            
+            <div id="winners-empty" class="empty-state" style="display: none;">
+                Aucun produit trouvé avec les filtres sélectionnés.
+            </div>
         </div>
     </div>
 
@@ -302,6 +457,117 @@
             'scoring': document.getElementById('btn-scoring') ? '✓' : '✗',
             'listing': document.getElementById('btn-listing') ? '✓' : '✗',
             'pipeline_abcde': document.getElementById('btn-pipeline_abcde') ? '✓' : '✗'
+        });
+        
+        // Fonctions pour charger et afficher les winners
+        async function loadWinners() {
+            const loadingEl = document.getElementById('winners-loading');
+            const tableEl = document.getElementById('winners-table');
+            const tbodyEl = document.getElementById('winners-tbody');
+            const emptyEl = document.getElementById('winners-empty');
+            
+            // Récupérer les valeurs des filtres
+            const decision = document.getElementById('filter-decision').value;
+            const minMargin = document.getElementById('filter-min-margin').value;
+            const minScore = document.getElementById('filter-min-score').value;
+            const minSales = document.getElementById('filter-min-sales').value;
+            const limit = document.getElementById('filter-limit').value || 50;
+            
+            // Construire l'URL avec les query params
+            const params = new URLSearchParams();
+            if (decision && decision !== 'Tous') {
+                params.append('decision', decision);
+            }
+            if (minMargin) {
+                params.append('min_margin_percent', minMargin);
+            }
+            if (minScore) {
+                params.append('min_global_score', minScore);
+            }
+            if (minSales) {
+                params.append('min_sales_per_day', minSales);
+            }
+            params.append('limit', limit);
+            
+            const url = `/api/v1/dashboard/winners?${params.toString()}`;
+            console.log('Chargement des winners:', url);
+            
+            // Afficher le loading
+            loadingEl.style.display = 'block';
+            tableEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+            tbodyEl.innerHTML = '';
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Winners reçus:', data);
+                
+                if (data.success && data.items && data.items.length > 0) {
+                    // Afficher le tableau
+                    tbodyEl.innerHTML = '';
+                    data.items.forEach(item => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${item.asin || '-'}</td>
+                            <td>${item.title || '-'}</td>
+                            <td>${item.category || '-'}</td>
+                            <td>${item.supplier_name || '-'}</td>
+                            <td>${item.purchase_price ? item.purchase_price.toFixed(2) + ' €' : '-'}</td>
+                            <td>${item.selling_price_target ? item.selling_price_target.toFixed(2) + ' €' : '-'}</td>
+                            <td>${item.margin_absolute ? item.margin_absolute.toFixed(2) + ' €' : '-'}</td>
+                            <td>${item.margin_percent ? item.margin_percent.toFixed(2) + ' %' : '-'}</td>
+                            <td>${item.estimated_sales_per_day ? item.estimated_sales_per_day.toFixed(2) : '-'}</td>
+                            <td>${item.global_score ? item.global_score.toFixed(2) : '-'}</td>
+                            <td><span class="status ${getDecisionClass(item.decision)}">${item.decision || '-'}</span></td>
+                        `;
+                        tbodyEl.appendChild(row);
+                    });
+                    
+                    tableEl.style.display = 'table';
+                    emptyEl.style.display = 'none';
+                } else {
+                    // Afficher le message vide
+                    tableEl.style.display = 'none';
+                    emptyEl.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Erreur lors du chargement des winners:', error);
+                emptyEl.innerHTML = `Erreur: ${error.message}`;
+                emptyEl.style.display = 'block';
+                tableEl.style.display = 'none';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+        
+        function getDecisionClass(decision) {
+            if (decision === 'A_launch') return 'success';
+            if (decision === 'B_review') return '';
+            if (decision === 'C_drop') return 'error';
+            return '';
+        }
+        
+        function applyFilters() {
+            loadWinners();
+        }
+        
+        function resetFilters() {
+            document.getElementById('filter-decision').value = 'A_launch';
+            document.getElementById('filter-min-margin').value = '20';
+            document.getElementById('filter-min-score').value = '50';
+            document.getElementById('filter-min-sales').value = '1';
+            document.getElementById('filter-limit').value = '50';
+            loadWinners();
+        }
+        
+        // Charger les winners automatiquement au chargement de la page
+        document.addEventListener('DOMContentLoaded', function() {
+            resetFilters();
         });
     </script>
 </body>

@@ -1,0 +1,217 @@
+"""
+Routes API pour le Dashboard - Visualisation des winners.
+
+Endpoints pour afficher et filtrer les produits gagnants.
+"""
+import logging
+from typing import List, Optional
+from uuid import UUID
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, desc
+from sqlalchemy.orm import aliased
+from pydantic import BaseModel, Field
+
+from app.core.database import get_db
+from app.models.product_candidate import ProductCandidate
+from app.models.product_score import ProductScore
+from app.models.sourcing_option import SourcingOption
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
+
+
+class WinnerProductOut(BaseModel):
+    """Réponse pour un produit winner."""
+
+    product_id: UUID = Field(description="ID du produit candidat")
+    asin: str = Field(description="ASIN Amazon")
+    title: str | None = Field(description="Titre du produit")
+    category: str | None = Field(description="Catégorie du produit")
+    supplier_name: str | None = Field(description="Nom du fournisseur")
+    purchase_price: Decimal | None = Field(description="Prix d'achat (unit_cost)")
+    selling_price_target: Decimal = Field(description="Prix de vente cible")
+    margin_absolute: Decimal | None = Field(description="Marge absolue (EUR)")
+    margin_percent: Decimal | None = Field(description="Marge en pourcentage")
+    estimated_sales_per_day: Decimal | None = Field(description="Ventes estimées par jour")
+    global_score: Decimal | None = Field(description="Score global")
+    decision: str = Field(description="Décision: A_launch, B_review, C_drop")
+
+    class Config:
+        from_attributes = True
+
+
+class WinnersResponse(BaseModel):
+    """Réponse de l'endpoint winners."""
+
+    success: bool = Field(description="Indique si la requête a réussi")
+    filters: dict = Field(description="Filtres appliqués")
+    items: List[WinnerProductOut] = Field(description="Liste des produits winners")
+    total_count: int = Field(description="Nombre total d'items retournés")
+
+
+@router.get(
+    "/winners",
+    response_model=WinnersResponse,
+    summary="Récupérer les produits winners avec filtres",
+    description="""
+    Récupère la liste des produits winners (candidats avec scores) avec des filtres.
+    
+    Pour chaque produit, retourne le meilleur score (global_score max) si plusieurs scores existent.
+    
+    **Filtres disponibles :**
+    - decision : A_launch, B_review, C_drop
+    - min_margin_percent : marge minimum en pourcentage
+    - min_global_score : score global minimum
+    - min_sales_per_day : ventes par jour minimum
+    - limit : nombre maximum de résultats (défaut: 50)
+    """,
+)
+async def get_winners(
+    decision: str = Query("A_launch", description="Décision à filtrer"),
+    min_margin_percent: Optional[float] = Query(None, description="Marge minimum en %"),
+    min_global_score: Optional[float] = Query(None, description="Score global minimum"),
+    min_sales_per_day: Optional[float] = Query(None, description="Ventes par jour minimum"),
+    limit: int = Query(50, ge=1, le=500, description="Nombre maximum de résultats"),
+    db: Session = Depends(get_db),
+) -> WinnersResponse:
+    """
+    Récupère les produits winners avec filtres.
+    
+    Pour chaque produit, retourne le score avec le meilleur global_score
+    si plusieurs scores existent pour ce produit.
+    """
+    logger.info(
+        f"Récupération des winners avec filtres: decision={decision}, "
+        f"min_margin_percent={min_margin_percent}, min_global_score={min_global_score}, "
+        f"min_sales_per_day={min_sales_per_day}, limit={limit}"
+    )
+
+    try:
+        # Requête avec JOINs et filtrage du meilleur score par produit
+        # On utilise une sous-requête pour identifier le meilleur score (global_score max) par produit
+        # Ensuite on joint seulement les scores qui correspondent à ce meilleur score
+        
+        # Sous-requête : meilleur global_score par produit
+        max_scores_subquery = (
+            db.query(
+                ProductScore.product_candidate_id,
+                func.max(ProductScore.global_score).label("max_global_score")
+            )
+            .group_by(ProductScore.product_candidate_id)
+            .subquery()
+        )
+        
+        # Requête principale avec JOINs
+        query = (
+            db.query(
+                ProductCandidate.id.label("product_id"),
+                ProductCandidate.asin,
+                ProductCandidate.title,
+                ProductCandidate.category,
+                SourcingOption.supplier_name,
+                SourcingOption.unit_cost.label("purchase_price"),
+                ProductScore.selling_price_target,
+                ProductScore.margin_absolute,
+                ProductScore.margin_percent,
+                ProductScore.estimated_sales_per_day,
+                ProductScore.global_score,
+                ProductScore.decision,
+            )
+            .join(ProductScore, ProductScore.product_candidate_id == ProductCandidate.id)
+            .join(
+                SourcingOption,
+                SourcingOption.id == ProductScore.sourcing_option_id,
+            )
+            .join(
+                max_scores_subquery,
+                and_(
+                    max_scores_subquery.c.product_candidate_id == ProductScore.product_candidate_id,
+                    max_scores_subquery.c.max_global_score == ProductScore.global_score,
+                ),
+            )
+        )
+
+        # Appliquer les filtres
+        if decision and decision.lower() not in ("tous", "all", ""):
+            query = query.filter(ProductScore.decision == decision)
+
+        if min_margin_percent is not None:
+            query = query.filter(
+                ProductScore.margin_percent.isnot(None),
+                ProductScore.margin_percent >= min_margin_percent
+            )
+
+        if min_global_score is not None:
+            query = query.filter(
+                ProductScore.global_score.isnot(None),
+                ProductScore.global_score >= min_global_score
+            )
+
+        if min_sales_per_day is not None:
+            query = query.filter(
+                ProductScore.estimated_sales_per_day.isnot(None),
+                ProductScore.estimated_sales_per_day >= min_sales_per_day
+            )
+
+        # Trier par global_score décroissant, puis par margin_percent décroissant
+        query = query.order_by(
+            desc(ProductScore.global_score),
+            desc(ProductScore.margin_percent),
+        )
+
+        # Limiter les résultats
+        query = query.limit(limit)
+
+        # Exécuter la requête
+        results = query.all()
+
+        # Convertir en modèles Pydantic
+        items = []
+        for row in results:
+            items.append(
+                WinnerProductOut(
+                    product_id=row.product_id,
+                    asin=row.asin,
+                    title=row.title,
+                    category=row.category,
+                    supplier_name=row.supplier_name,
+                    purchase_price=row.purchase_price,
+                    selling_price_target=row.selling_price_target,
+                    margin_absolute=row.margin_absolute,
+                    margin_percent=row.margin_percent,
+                    estimated_sales_per_day=row.estimated_sales_per_day,
+                    global_score=row.global_score,
+                    decision=row.decision,
+                )
+            )
+
+        filters_applied = {
+            "decision": decision,
+            "min_margin_percent": min_margin_percent,
+            "min_global_score": min_global_score,
+            "min_sales_per_day": min_sales_per_day,
+            "limit": limit,
+        }
+
+        logger.info(f"Retour de {len(items)} winners après filtres")
+
+        return WinnersResponse(
+            success=True,
+            filters=filters_applied,
+            items=items,
+            total_count=len(items),
+        )
+
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des winners: {str(e)}", exc_info=True)
+        return WinnersResponse(
+            success=False,
+            filters={},
+            items=[],
+            total_count=0,
+        )
+

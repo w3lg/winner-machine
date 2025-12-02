@@ -16,6 +16,7 @@ from app.api.routes_scoring import router as scoring_router
 from app.api.routes_listings import router as listings_router
 from app.api.routes_export import router as export_router
 from app.api.routes_ui import router as ui_router
+from app.api.routes_dashboard import router as dashboard_router
 
 # Récupérer la configuration
 settings = get_settings()
@@ -59,6 +60,7 @@ app.include_router(scoring_router)
 app.include_router(listings_router)
 app.include_router(export_router)
 app.include_router(ui_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")
