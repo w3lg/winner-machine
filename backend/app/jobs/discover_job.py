@@ -11,7 +11,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import text
+from sqlalchemy import text, bindparam, JSON
+from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 
 from app.models.product_candidate import ProductCandidate
 from app.services.keepa_client import KeepaClient
@@ -268,18 +269,20 @@ class DiscoverJob:
         # Préparer created_at (préserver si existe, sinon NOW())
         created_at = existing.created_at if existing else datetime.utcnow()
         
-        # Construire la requête SQL avec ON CONFLICT DO UPDATE
+        # Construire la requête SQL avec ON CONFLICT DO UPDATE (solution native PostgreSQL)
         # Cette requête garantit qu'il n'y aura jamais de UniqueViolation
-        # Utiliser CAST() standard SQL pour les conversions de types
+        # Utiliser bindparam avec types SQLAlchemy pour les conversions automatiques
+        raw_data_dict = keepa_product.raw_data if isinstance(keepa_product.raw_data, dict) else json.loads(keepa_product.raw_data) if isinstance(keepa_product.raw_data, str) else {}
+        
         sql_query = text("""
             INSERT INTO product_candidates (
                 id, asin, title, category, source_marketplace, avg_price, bsr,
                 estimated_sales_per_day, reviews_count, rating, raw_keepa_data, status,
                 created_at, updated_at
             ) VALUES (
-                CAST(:product_id AS UUID), :asin, :title, :category, :source_marketplace, 
+                :product_id, :asin, :title, :category, :source_marketplace, 
                 :avg_price, :bsr, :estimated_sales_per_day, :reviews_count, :rating, 
-                CAST(:raw_keepa_data AS JSONB), :status, 
+                :raw_keepa_data, :status, 
                 :created_at, NOW()
             )
             ON CONFLICT (asin) DO UPDATE SET
@@ -298,31 +301,29 @@ class DiscoverJob:
                     ELSE EXCLUDED.status 
                 END,
                 updated_at = NOW()
-        """)
-        
-        # Préparer les paramètres
-        params = {
-            "product_id": str(product_id),
-            "asin": asin,
-            "title": keepa_product.title,
-            "category": category_name,
-            "source_marketplace": "amazon_fr",
-            "avg_price": float(keepa_product.avg_price) if keepa_product.avg_price else None,
-            "bsr": keepa_product.bsr,
-            "estimated_sales_per_day": float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None,
-            "reviews_count": keepa_product.reviews_count,
-            "rating": float(keepa_product.rating) if keepa_product.rating else None,
-            "raw_keepa_data": raw_data_json,
-            "status": new_status,
-            "created_at": created_at,
-        }
+        """).bindparams(
+            bindparam("product_id", value=product_id, type_=PostgresUUID(as_uuid=True)),
+            bindparam("asin", value=asin),
+            bindparam("title", value=keepa_product.title),
+            bindparam("category", value=category_name),
+            bindparam("source_marketplace", value="amazon_fr"),
+            bindparam("avg_price", value=float(keepa_product.avg_price) if keepa_product.avg_price else None),
+            bindparam("bsr", value=keepa_product.bsr),
+            bindparam("estimated_sales_per_day", value=float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None),
+            bindparam("reviews_count", value=keepa_product.reviews_count),
+            bindparam("rating", value=float(keepa_product.rating) if keepa_product.rating else None),
+            bindparam("raw_keepa_data", value=raw_data_dict, type_=JSON),
+            bindparam("status", value=new_status),
+            bindparam("created_at", value=created_at),
+        )
         
         # Exécuter l'upsert avec SQL brut - garanti d'éviter les batch INSERT
         try:
-            self.db.execute(sql_query, params)
+            self.db.execute(sql_query)
             self.db.commit()
         except Exception as e:
             self.db.rollback()
+            logger.error(f"Erreur lors de l'upsert du produit {asin}: {str(e)}", exc_info=True)
             raise
         
         # Retourner True si nouveau produit, False si mis à jour
