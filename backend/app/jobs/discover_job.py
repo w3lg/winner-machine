@@ -270,16 +270,16 @@ class DiscoverJob:
         
         # Construire la requête SQL avec ON CONFLICT DO UPDATE
         # Cette requête garantit qu'il n'y aura jamais de UniqueViolation
-        # Utiliser des placeholders simples et laisser PostgreSQL faire les conversions
+        # Utiliser CAST() standard SQL pour les conversions de types
         sql_query = text("""
             INSERT INTO product_candidates (
                 id, asin, title, category, source_marketplace, avg_price, bsr,
                 estimated_sales_per_day, reviews_count, rating, raw_keepa_data, status,
                 created_at, updated_at
             ) VALUES (
-                :product_id::uuid, :asin, :title, :category, :source_marketplace, 
+                CAST(:product_id AS UUID), :asin, :title, :category, :source_marketplace, 
                 :avg_price, :bsr, :estimated_sales_per_day, :reviews_count, :rating, 
-                :raw_keepa_data::jsonb, :status, 
+                CAST(:raw_keepa_data AS JSONB), :status, 
                 :created_at, NOW()
             )
             ON CONFLICT (asin) DO UPDATE SET
@@ -298,25 +298,28 @@ class DiscoverJob:
                     ELSE EXCLUDED.status 
                 END,
                 updated_at = NOW()
-        """).bindparams(
-            bindparam("product_id", value=str(product_id)),
-            bindparam("asin", value=asin),
-            bindparam("title", value=keepa_product.title),
-            bindparam("category", value=category_name),
-            bindparam("source_marketplace", value="amazon_fr"),
-            bindparam("avg_price", value=float(keepa_product.avg_price) if keepa_product.avg_price else None),
-            bindparam("bsr", value=keepa_product.bsr),
-            bindparam("estimated_sales_per_day", value=float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None),
-            bindparam("reviews_count", value=keepa_product.reviews_count),
-            bindparam("rating", value=float(keepa_product.rating) if keepa_product.rating else None),
-            bindparam("raw_keepa_data", value=raw_data_json),
-            bindparam("status", value=new_status),
-            bindparam("created_at", value=created_at),
-        )
+        """)
+        
+        # Préparer les paramètres
+        params = {
+            "product_id": str(product_id),
+            "asin": asin,
+            "title": keepa_product.title,
+            "category": category_name,
+            "source_marketplace": "amazon_fr",
+            "avg_price": float(keepa_product.avg_price) if keepa_product.avg_price else None,
+            "bsr": keepa_product.bsr,
+            "estimated_sales_per_day": float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None,
+            "reviews_count": keepa_product.reviews_count,
+            "rating": float(keepa_product.rating) if keepa_product.rating else None,
+            "raw_keepa_data": raw_data_json,
+            "status": new_status,
+            "created_at": created_at,
+        }
         
         # Exécuter l'upsert avec SQL brut - garanti d'éviter les batch INSERT
         try:
-            self.db.execute(sql_query)
+            self.db.execute(sql_query, params)
             self.db.commit()
         except Exception as e:
             self.db.rollback()
