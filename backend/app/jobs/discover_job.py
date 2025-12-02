@@ -87,25 +87,7 @@ class DiscoverJob:
                     f"{category_stats['updated']} mis à jour, "
                     f"{category_stats['total_processed']} traités"
                 )
-                # Commit après chaque catégorie pour éviter les batch INSERT
-                try:
-                    self.db.commit()
-                except IntegrityError as e:
-                    # Gérer les violations de contrainte unique au commit de catégorie
-                    if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
-                        logger.warning(
-                            f"Violation de contrainte unique lors du commit de la catégorie {category_config.name}, "
-                            "rollback et réessai avec gestion individuelle"
-                        )
-                        self.db.rollback()
-                        stats["errors"] += 1
-                    else:
-                        logger.error(
-                            f"Erreur d'intégrité lors du commit de la catégorie {category_config.name}: {str(e)}",
-                            exc_info=True,
-                        )
-                        self.db.rollback()
-                        stats["errors"] += 1
+                # Pas besoin de commit ici car on commit déjà après chaque produit
             except Exception as e:
                 logger.error(
                     f"Erreur lors du traitement de la catégorie {category_config.name}: {str(e)}",
@@ -118,24 +100,7 @@ class DiscoverJob:
                     pass
                 # Continue avec la catégorie suivante
 
-        # Commit final pour les modifications restantes (si aucune catégorie n'a été traitée ou erreur)
-        try:
-            self.db.commit()
-        except IntegrityError as e:
-            if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
-                logger.warning(
-                    "Violation de contrainte unique au commit final, "
-                    "les produits ont probablement été commités par catégorie. Rollback effectué."
-                )
-                self.db.rollback()
-            else:
-                logger.error(f"Erreur d'intégrité lors du commit final: {str(e)}", exc_info=True)
-                self.db.rollback()
-                stats["errors"] += 1
-        except SQLAlchemyError as e:
-            logger.error(f"Erreur lors du commit final en base de données: {str(e)}", exc_info=True)
-            self.db.rollback()
-            stats["errors"] += 1
+        # Pas besoin de commit final car on commit déjà après chaque produit
 
         logger.info("=== Job de découverte terminé avec succès ===")
         logger.info(
@@ -228,13 +193,13 @@ class DiscoverJob:
                     self.db.add(new_candidate)
                     stats["created"] += 1
 
-                # Flush après chaque produit pour éviter l'accumulation en batch
+                # COMMIT IMMÉDIAT après chaque produit pour garantir qu'il n'y aura jamais de batch INSERT
                 try:
-                    self.db.flush()
-                except IntegrityError as flush_e:
-                    # Si erreur de contrainte unique au flush, le produit existe peut-être déjà
-                    if "product_candidates_asin_key" in str(flush_e.orig) or "asin" in str(flush_e.orig).lower():
-                        logger.debug(f"ASIN {asin} existe déjà (erreur au flush), rollback et mise à jour")
+                    self.db.commit()
+                except IntegrityError as commit_e:
+                    # Si erreur de contrainte unique au commit, le produit existe déjà
+                    if "product_candidates_asin_key" in str(commit_e.orig) or "asin" in str(commit_e.orig).lower():
+                        logger.debug(f"ASIN {asin} existe déjà (erreur au commit), rollback et mise à jour")
                         self.db.rollback()
                         # Retrouver le produit existant
                         existing = (
@@ -257,8 +222,7 @@ class DiscoverJob:
                             stats["updated"] += 1
                             if stats["created"] > 0:
                                 stats["created"] -= 1
-                        # Réessayer le flush
-                        self.db.flush()
+                            self.db.commit()
                     else:
                         raise
 
@@ -266,52 +230,15 @@ class DiscoverJob:
                 self._processed_asins.add(asin)
 
                 stats["total_processed"] += 1
-            except IntegrityError as e:
-                # Gérer spécifiquement les violations de contrainte unique
-                if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
-                    logger.warning(
-                        f"ASIN {keepa_product.asin} existe déjà en base (violation de contrainte unique), "
-                        "tentative de mise à jour"
-                    )
-                    self.db.rollback()
-                    # Réessayer avec une mise à jour
-                    try:
-                        existing = (
-                            self.db.query(ProductCandidate)
-                            .filter(ProductCandidate.asin == keepa_product.asin)
-                            .first()
-                        )
-                        if existing:
-                            existing.title = keepa_product.title
-                            existing.category = category_config.name
-                            existing.avg_price = keepa_product.avg_price
-                            existing.bsr = keepa_product.bsr
-                            existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
-                            existing.reviews_count = keepa_product.reviews_count
-                            existing.rating = keepa_product.rating
-                            existing.raw_keepa_data = keepa_product.raw_data
-                            existing.source_marketplace = "amazon_fr"
-                            if existing.status not in ["scored", "selected", "launched"]:
-                                existing.status = "new"
-                            stats["updated"] += 1
-                            self._processed_asins.add(keepa_product.asin)
-                            stats["total_processed"] += 1
-                    except Exception as retry_e:
-                        logger.error(
-                            f"Erreur lors de la mise à jour du produit {keepa_product.asin}: {str(retry_e)}",
-                            exc_info=True,
-                        )
-                else:
-                    logger.error(
-                        f"Erreur d'intégrité lors du traitement du produit {keepa_product.asin}: {str(e)}",
-                        exc_info=True,
-                    )
-                continue
             except Exception as e:
                 logger.error(
                     f"Erreur lors du traitement du produit {keepa_product.asin}: {str(e)}",
                     exc_info=True,
                 )
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
                 # Continue avec le produit suivant
                 continue
 
