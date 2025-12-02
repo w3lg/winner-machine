@@ -4,10 +4,10 @@ Job de découverte de produits - Module A.
 Récupère des produits depuis Keepa et les stocke en base.
 """
 import logging
-from typing import Dict
+from typing import Dict, Set
 
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from app.models.product_candidate import ProductCandidate
 from app.services.keepa_client import KeepaClient
@@ -30,6 +30,8 @@ class DiscoverJob:
         self.db = db
         self.keepa_client = KeepaClient()
         self.category_service = get_category_config_service()
+        # Set pour tracker les ASINs déjà traités dans cette exécution
+        self._processed_asins: Set[str] = set()
 
     def run(self) -> Dict[str, int]:
         """
@@ -65,6 +67,9 @@ class DiscoverJob:
             "categories_processed": 0,
             "errors": 0,
         }
+
+        # Réinitialiser le tracker d'ASINs pour cette exécution
+        self._processed_asins.clear()
 
         for category_config in categories:
             try:
@@ -141,10 +146,17 @@ class DiscoverJob:
 
         for keepa_product in products:
             try:
-                # Vérifier si le produit existe déjà
+                asin = keepa_product.asin
+
+                # Skip si cet ASIN a déjà été traité dans cette exécution
+                if asin in self._processed_asins:
+                    logger.debug(f"ASIN {asin} déjà traité dans cette exécution, skip")
+                    continue
+
+                # Vérifier si le produit existe déjà en base
                 existing = (
                     self.db.query(ProductCandidate)
-                    .filter(ProductCandidate.asin == keepa_product.asin)
+                    .filter(ProductCandidate.asin == asin)
                     .first()
                 )
 
@@ -166,7 +178,7 @@ class DiscoverJob:
                 else:
                     # Créer un nouveau produit candidat
                     new_candidate = ProductCandidate(
-                        asin=keepa_product.asin,
+                        asin=asin,
                         title=keepa_product.title,
                         category=category_config.name,
                         source_marketplace="amazon_fr",
@@ -181,7 +193,56 @@ class DiscoverJob:
                     self.db.add(new_candidate)
                     stats["created"] += 1
 
+                # Marquer cet ASIN comme traité
+                self._processed_asins.add(asin)
+                
+                # Flush périodique pour que les nouveaux produits soient visibles
+                # dans les requêtes suivantes (pour éviter les doublons)
+                if stats["created"] % 10 == 0:
+                    self.db.flush()
+
                 stats["total_processed"] += 1
+            except IntegrityError as e:
+                # Gérer spécifiquement les violations de contrainte unique
+                if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
+                    logger.warning(
+                        f"ASIN {keepa_product.asin} existe déjà en base (violation de contrainte unique), "
+                        "tentative de mise à jour"
+                    )
+                    self.db.rollback()
+                    # Réessayer avec une mise à jour
+                    try:
+                        existing = (
+                            self.db.query(ProductCandidate)
+                            .filter(ProductCandidate.asin == keepa_product.asin)
+                            .first()
+                        )
+                        if existing:
+                            existing.title = keepa_product.title
+                            existing.category = category_config.name
+                            existing.avg_price = keepa_product.avg_price
+                            existing.bsr = keepa_product.bsr
+                            existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
+                            existing.reviews_count = keepa_product.reviews_count
+                            existing.rating = keepa_product.rating
+                            existing.raw_keepa_data = keepa_product.raw_data
+                            existing.source_marketplace = "amazon_fr"
+                            if existing.status not in ["scored", "selected", "launched"]:
+                                existing.status = "new"
+                            stats["updated"] += 1
+                            self._processed_asins.add(keepa_product.asin)
+                            stats["total_processed"] += 1
+                    except Exception as retry_e:
+                        logger.error(
+                            f"Erreur lors de la mise à jour du produit {keepa_product.asin}: {str(retry_e)}",
+                            exc_info=True,
+                        )
+                else:
+                    logger.error(
+                        f"Erreur d'intégrité lors du traitement du produit {keepa_product.asin}: {str(e)}",
+                        exc_info=True,
+                    )
+                continue
             except Exception as e:
                 logger.error(
                     f"Erreur lors du traitement du produit {keepa_product.asin}: {str(e)}",
