@@ -1,0 +1,49 @@
+# Configuration des catégories Amazon FR pour la découverte de produits
+# Utilisé par le Module A : Discoverer
+
+categories:
+  # Électronique
+  - id: 541966
+    name: "Electronics & Photo"
+    marketplace: "amazon_fr"
+    bsr_max: 50000  # Maximum BSR acceptable
+    price_min: 10.0  # Prix minimum en EUR
+    price_max: 100.0  # Prix maximum en EUR
+    active: true
+
+  # Maison & Jardin
+  - id: 599320
+    name: "Home & Kitchen"
+    marketplace: "amazon_fr"
+    bsr_max: 30000
+    price_min: 5.0
+    price_max: 150.0
+    active: true
+
+  # Sports & Loisirs
+  - id: 2617943011
+    name: "Sports & Outdoors"
+    marketplace: "amazon_fr"
+    bsr_max: 40000
+    price_min: 10.0
+    price_max: 200.0
+    active: true
+
+  # Beauté & Soins personnels
+  - id: 3760911
+    name: "Beauty & Personal Care"
+    marketplace: "amazon_fr"
+    bsr_max: 25000
+    price_min: 8.0
+    price_max: 80.0
+    active: true
+
+  # Jouets & Jeux
+  - id: 5488876011
+    name: "Toys & Games"
+    marketplace: "amazon_fr"
+    bsr_max: 35000
+    price_min: 5.0
+    price_max: 100.0
+    active: true
+

@@ -1,0 +1,7 @@
+sku,name,keywords,unit_cost,moq,lead_time_days,brandable,bundle_capable
+DEMO-001,Casque Bluetooth Premium,bluetooth casque audio écouteur sans fil,25.50,10,14,1,1
+DEMO-002,Chargeur USB-C Rapide,chargeur usb c cable rapide charge,8.90,20,7,0,1
+DEMO-003,Souris Ergonomique Sans Fil,souris ergonomique sans fil informatique,15.75,15,10,1,0
+DEMO-004,Clavier Mécanique RGB,clavier mecanique rgb gaming retro eclairage,45.00,5,21,1,1
+DEMO-005,Webcam HD 1080p,webcam hd 1080p video conference stream,32.50,10,14,1,0
+

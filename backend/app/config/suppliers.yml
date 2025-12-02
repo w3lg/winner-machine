@@ -1,0 +1,22 @@
+# Configuration des fournisseurs pour le Module B : Sourcing
+# Utilisé par le SourcingMatcher pour trouver des options d'approvisionnement
+
+suppliers:
+  # Fournisseur de démo avec catalogue CSV
+  - name: "Demo IT Supplier"
+    type: "csv_catalog"
+    path: "infra/sql/demo_supplier_catalog.csv"
+    sourcing_type: "EU_wholesale"
+    brandable: false
+    bundle_capable: false
+    active: true
+
+  # Autre fournisseur de démo (pour tests futurs)
+  - name: "Demo Electronics Supplier"
+    type: "csv_catalog"
+    path: "infra/sql/demo_supplier_catalog.csv"
+    sourcing_type: "import_CN"
+    brandable: true
+    bundle_capable: true
+    active: true
+

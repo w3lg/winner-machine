@@ -1,0 +1,25 @@
+# Configuration des frais et commissions pour le calcul des marges
+# Utilisé par ScoringService pour calculer les coûts Amazon et logistiques
+
+# Taux de commission Amazon par catégorie (en décimal, ex: 0.15 = 15%)
+commission_rates:
+  default: 0.15
+  electronics: 0.08
+  home: 0.15
+  beauty: 0.15
+  sports: 0.15
+  toys: 0.15
+  clothing: 0.17
+  books: 0.15
+
+# Frais FBA (Fulfillment by Amazon) en EUR par unité
+# Selon la taille/poids du produit
+fba_fees:
+  small_light: 3.00  # Produits petits et légers
+  standard: 4.50     # Produits standard (défaut)
+  large: 6.50        # Produits grands/lourds
+
+# Coûts logistiques par défaut (EUR par unité)
+logistics:
+  default_shipping_per_unit: 2.00  # Coût de transport par défaut
+

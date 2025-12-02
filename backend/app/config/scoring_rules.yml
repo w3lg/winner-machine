@@ -1,0 +1,18 @@
+# Règles de scoring pour déterminer les décisions A_launch, B_review, C_drop
+# Utilisé par ScoringService pour calculer le score global et prendre la décision
+
+# Marge minimale requise (en pourcentage)
+min_margin_percent: 20
+
+# Seuils de score global pour les décisions
+min_global_score_A: 100  # Score minimum pour A_launch
+min_global_score_B: 20   # Score minimum pour B_review
+
+# Facteurs de risque (0.0 à 1.0, plus élevé = plus risqué)
+risk_factors:
+  default: 0.1       # Risque par défaut
+  fragile: 0.3       # Produits fragiles
+  high_returns: 0.4  # Produits avec taux de retour élevé
+  new_supplier: 0.2  # Nouveau fournisseur non testé
+  competitive: 0.15  # Marché très concurrentiel
+
