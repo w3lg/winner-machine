@@ -517,12 +517,12 @@
                             <td>${item.title || '-'}</td>
                             <td>${item.category || '-'}</td>
                             <td>${item.supplier_name || '-'}</td>
-                            <td>${item.purchase_price ? item.purchase_price.toFixed(2) + ' €' : '-'}</td>
-                            <td>${item.selling_price_target ? item.selling_price_target.toFixed(2) + ' €' : '-'}</td>
-                            <td>${item.margin_absolute ? item.margin_absolute.toFixed(2) + ' €' : '-'}</td>
-                            <td>${item.margin_percent ? item.margin_percent.toFixed(2) + ' %' : '-'}</td>
-                            <td>${item.estimated_sales_per_day ? item.estimated_sales_per_day.toFixed(2) : '-'}</td>
-                            <td>${item.global_score ? item.global_score.toFixed(2) : '-'}</td>
+                            <td>${formatNumber(item.purchase_price, 2, '€')}</td>
+                            <td>${formatNumber(item.selling_price_target, 2, '€')}</td>
+                            <td>${formatNumber(item.margin_absolute, 2, '€')}</td>
+                            <td>${formatNumber(item.margin_percent, 2, '%')}</td>
+                            <td>${formatNumber(item.estimated_sales_per_day, 2)}</td>
+                            <td>${formatNumber(item.global_score, 2)}</td>
                             <td><span class="status ${getDecisionClass(item.decision)}">${item.decision || '-'}</span></td>
                         `;
                         tbodyEl.appendChild(row);
@@ -550,6 +550,18 @@
             if (decision === 'B_review') return '';
             if (decision === 'C_drop') return 'error';
             return '';
+        }
+        
+        function formatNumber(value, decimals = 2, suffix = '') {
+            if (value === null || value === undefined || value === '') {
+                return '-';
+            }
+            // Convertir en nombre si c'est une chaîne
+            const num = typeof value === 'string' ? parseFloat(value) : value;
+            if (isNaN(num)) {
+                return '-';
+            }
+            return num.toFixed(decimals) + (suffix ? ' ' + suffix : '');
         }
         
         function applyFilters() {
