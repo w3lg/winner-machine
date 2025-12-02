@@ -87,55 +87,64 @@ class DiscoverJob:
                     f"{category_stats['updated']} mis à jour, "
                     f"{category_stats['total_processed']} traités"
                 )
+                # Commit après chaque catégorie pour éviter les batch INSERT
+                try:
+                    self.db.commit()
+                except IntegrityError as e:
+                    # Gérer les violations de contrainte unique au commit de catégorie
+                    if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
+                        logger.warning(
+                            f"Violation de contrainte unique lors du commit de la catégorie {category_config.name}, "
+                            "rollback et réessai avec gestion individuelle"
+                        )
+                        self.db.rollback()
+                        stats["errors"] += 1
+                    else:
+                        logger.error(
+                            f"Erreur d'intégrité lors du commit de la catégorie {category_config.name}: {str(e)}",
+                            exc_info=True,
+                        )
+                        self.db.rollback()
+                        stats["errors"] += 1
             except Exception as e:
                 logger.error(
                     f"Erreur lors du traitement de la catégorie {category_config.name}: {str(e)}",
                     exc_info=True,
                 )
                 stats["errors"] += 1
-                # Continue avec la catégorie suivante
-
-        try:
-            self.db.commit()
-            logger.info("=== Job de découverte terminé avec succès ===")
-            logger.info(
-                f"Statistiques globales: {stats['created']} créés, "
-                f"{stats['updated']} mis à jour, "
-                f"{stats['total_processed']} traités, "
-                f"{stats['categories_processed']} catégories, "
-                f"{stats['errors']} erreurs"
-            )
-        except IntegrityError as e:
-            # Gérer les violations de contrainte unique au commit final
-            if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
-                logger.warning(
-                    "Violation de contrainte unique détectée au commit final, "
-                    "les produits ont probablement été flushés individuellement. "
-                    "Le commit est ignoré mais les données sont déjà en base."
-                )
                 try:
                     self.db.rollback()
                 except Exception:
                     pass
-                # Les produits ont déjà été flushés individuellement, donc pas besoin de re-commit
-                logger.info("=== Job de découverte terminé (avec rollback suite à doublon) ===")
-                logger.info(
-                    f"Statistiques globales: {stats['created']} créés, "
-                    f"{stats['updated']} mis à jour, "
-                    f"{stats['total_processed']} traités, "
-                    f"{stats['categories_processed']} catégories, "
-                    f"{stats['errors']} erreurs"
+                # Continue avec la catégorie suivante
+
+        # Commit final pour les modifications restantes (si aucune catégorie n'a été traitée ou erreur)
+        try:
+            self.db.commit()
+        except IntegrityError as e:
+            if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
+                logger.warning(
+                    "Violation de contrainte unique au commit final, "
+                    "les produits ont probablement été commités par catégorie. Rollback effectué."
                 )
+                self.db.rollback()
             else:
-                logger.error(f"Erreur d'intégrité lors du commit: {str(e)}", exc_info=True)
+                logger.error(f"Erreur d'intégrité lors du commit final: {str(e)}", exc_info=True)
                 self.db.rollback()
                 stats["errors"] += 1
-                raise
         except SQLAlchemyError as e:
-            logger.error(f"Erreur lors du commit en base de données: {str(e)}", exc_info=True)
+            logger.error(f"Erreur lors du commit final en base de données: {str(e)}", exc_info=True)
             self.db.rollback()
             stats["errors"] += 1
-            raise
+
+        logger.info("=== Job de découverte terminé avec succès ===")
+        logger.info(
+            f"Statistiques globales: {stats['created']} créés, "
+            f"{stats['updated']} mis à jour, "
+            f"{stats['total_processed']} traités, "
+            f"{stats['categories_processed']} catégories, "
+            f"{stats['errors']} erreurs"
+        )
 
         return stats
 
@@ -218,36 +227,40 @@ class DiscoverJob:
                     )
                     self.db.add(new_candidate)
                     stats["created"] += 1
-                    # Flush immédiatement pour éviter les doublons dans le batch
-                    try:
+
+                # Flush après chaque produit pour éviter l'accumulation en batch
+                try:
+                    self.db.flush()
+                except IntegrityError as flush_e:
+                    # Si erreur de contrainte unique au flush, le produit existe peut-être déjà
+                    if "product_candidates_asin_key" in str(flush_e.orig) or "asin" in str(flush_e.orig).lower():
+                        logger.debug(f"ASIN {asin} existe déjà (erreur au flush), rollback et mise à jour")
+                        self.db.rollback()
+                        # Retrouver le produit existant
+                        existing = (
+                            self.db.query(ProductCandidate)
+                            .filter(ProductCandidate.asin == asin)
+                            .first()
+                        )
+                        if existing:
+                            existing.title = keepa_product.title
+                            existing.category = category_config.name
+                            existing.avg_price = keepa_product.avg_price
+                            existing.bsr = keepa_product.bsr
+                            existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
+                            existing.reviews_count = keepa_product.reviews_count
+                            existing.rating = keepa_product.rating
+                            existing.raw_keepa_data = keepa_product.raw_data
+                            existing.source_marketplace = "amazon_fr"
+                            if existing.status not in ["scored", "selected", "launched"]:
+                                existing.status = "new"
+                            stats["updated"] += 1
+                            if stats["created"] > 0:
+                                stats["created"] -= 1
+                        # Réessayer le flush
                         self.db.flush()
-                    except IntegrityError as flush_e:
-                        # Si erreur au flush, le produit existe peut-être déjà
-                        if "product_candidates_asin_key" in str(flush_e.orig) or "asin" in str(flush_e.orig).lower():
-                            logger.debug(f"ASIN {asin} existe déjà, rollback et mise à jour")
-                            self.db.rollback()
-                            # Retrouver le produit existant
-                            existing = (
-                                self.db.query(ProductCandidate)
-                                .filter(ProductCandidate.asin == asin)
-                                .first()
-                            )
-                            if existing:
-                                existing.title = keepa_product.title
-                                existing.category = category_config.name
-                                existing.avg_price = keepa_product.avg_price
-                                existing.bsr = keepa_product.bsr
-                                existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
-                                existing.reviews_count = keepa_product.reviews_count
-                                existing.rating = keepa_product.rating
-                                existing.raw_keepa_data = keepa_product.raw_data
-                                existing.source_marketplace = "amazon_fr"
-                                if existing.status not in ["scored", "selected", "launched"]:
-                                    existing.status = "new"
-                                stats["updated"] += 1
-                                stats["created"] -= 1  # Annuler le compteur de création
-                        else:
-                            raise
+                    else:
+                        raise
 
                 # Marquer cet ASIN comme traité
                 self._processed_asins.add(asin)
