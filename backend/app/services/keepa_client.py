@@ -157,12 +157,22 @@ class KeepaClient:
                 return normalized
 
             except httpx.HTTPStatusError as e:
-                # Si /bestsellers ne fonctionne pas, essayer une autre approche
+                # Si /bestsellers ne fonctionne pas, utiliser le mode mock enrichi
                 logger.warning(
-                    "Endpoint /bestsellers non disponible ou erreur HTTP %s. "
-                    "Utilisation du mode mock enrichi pour la catégorie %s",
+                    "Endpoint /bestsellers non disponible ou erreur HTTP %s pour la catégorie %s. "
+                    "Utilisation du mode mock enrichi (%s produits)",
                     e.response.status_code,
                     category_config.name,
+                    limit,
+                )
+                return self._mock_products(category_config, limit)
+            except Exception as e:
+                # En cas d'erreur inattendue, utiliser le mode mock
+                logger.warning(
+                    "Erreur lors de l'appel Keepa pour la catégorie %s: %s. "
+                    "Utilisation du mode mock enrichi",
+                    category_config.name,
+                    str(e),
                 )
                 return self._mock_products(category_config, limit)
 
@@ -221,29 +231,38 @@ class KeepaClient:
     ) -> List[KeepaProduct]:
         """
         Génère des produits mockés pour le développement.
+        
+        NOTE: Cette méthode génère des produits réalistes pour simuler l'API Keepa
+        jusqu'à ce qu'une méthode de recherche par catégorie soit trouvée.
 
         Args:
             category_config: Configuration de la catégorie.
-            limit: Nombre de produits à générer.
+            limit: Nombre de produits à générer (20-200).
 
         Returns:
             Liste de produits mockés.
         """
         import random
+        import string
         from decimal import Decimal
 
+        # Générer entre 20 et limit produits (ou limit si < 20)
+        num_products = max(20, min(limit, 200))
+        
         mock_products = []
-        base_asins = [
-            "B08XYZ1234",
-            "B09ABC5678",
-            "B10DEF9012",
-            "B11GHI3456",
-            "B12JKL7890",
-        ]
+        
+        # Générer des ASINs uniques (format: B + 9 caractères alphanumériques)
+        def generate_asin(seed: int) -> str:
+            """Génère un ASIN unique basé sur un seed."""
+            random.seed(seed + hash(category_config.name))
+            chars = string.ascii_uppercase + string.digits
+            suffix = ''.join(random.choices(chars, k=9))
+            return f"B{suffix}"
 
-        for i in range(min(limit, 5)):  # Générer 5 produits mock max
-            # ASINs Amazon sont toujours de 10 caractères exactement
-            asin = base_asins[i % len(base_asins)]
+        for i in range(num_products):
+            asin = generate_asin(i)
+            
+            # Prix aléatoire dans la plage configurée
             price = Decimal(
                 str(
                     random.uniform(
@@ -251,26 +270,89 @@ class KeepaClient:
                     )
                 )
             ).quantize(Decimal("0.01"))
-            bsr = random.randint(1000, category_config.bsr_max)
-            sales = Decimal(str(random.uniform(5, 50))).quantize(Decimal("0.01"))
-            reviews = random.randint(50, 5000)
-            rating = Decimal(str(random.uniform(3.5, 4.8))).quantize(Decimal("0.01"))
+            
+            # BSR aléatoire (plus bas = mieux)
+            bsr = random.randint(100, min(category_config.bsr_max, 50000))
+            
+            # Estimation de ventes par jour basée sur le BSR (BSR plus bas = plus de ventes)
+            # Formule simplifiée: ventes ≈ 10000 / BSR
+            estimated_sales = max(0.5, min(100.0, 10000.0 / bsr))
+            sales = Decimal(str(estimated_sales)).quantize(Decimal("0.01"))
+            
+            # Reviews (entre 50 et 10000, avec distribution réaliste)
+            reviews = random.randint(50, 10000)
+            
+            # Rating (entre 3.5 et 5.0, avec une moyenne autour de 4.2)
+            rating = Decimal(str(random.uniform(3.5, 5.0))).quantize(Decimal("0.01"))
+            
+            # Titre réaliste basé sur la catégorie
+            titles_templates = {
+                "Electronics & Photo": [
+                    "Câble USB-C haute qualité",
+                    "Écouteurs Bluetooth sans fil",
+                    "Chargeur rapide universel",
+                    "Support téléphone voiture",
+                    "Lampe LED rechargeable",
+                ],
+                "Home & Kitchen": [
+                    "Serviette de bain premium",
+                    "Moulin à poivre mécanique",
+                    "Boîte de rangement hermétique",
+                    "Torchon de cuisine absorbant",
+                    "Pince à vaisselle silicone",
+                ],
+                "Sports & Outdoors": [
+                    "Gourde isotherme 500ml",
+                    "Bandeau sport anti-transpiration",
+                    "Corde à sauter réglable",
+                    "Sacs lestés ajustables",
+                    "Élastique de résistance fitness",
+                ],
+                "Tools & Home Improvement": [
+                    "Perceuse visseuse sans fil",
+                    "Échelle pliante 4 marches",
+                    "Cutter professionnel sécurisé",
+                    "Scie à métaux manuelle",
+                    "Ruban adhésif multi-usages",
+                ],
+                "Beauty & Personal Care": [
+                    "Crème hydratante visage bio",
+                    "Shampooing cheveux secs",
+                    "Rasoir électrique rechargeable",
+                    "Déodorant naturel roll-on",
+                    "Masque facial purifiant",
+                ],
+                "Toys & Games": [
+                    "Puzzle 1000 pièces",
+                    "Jeu de société famille",
+                    "Poupée interactive",
+                    "Set construction magnétique",
+                    "Jeu de cartes éducatif",
+                ],
+            }
+            
+            templates = titles_templates.get(
+                category_config.name,
+                [f"Produit {i+1} - {category_config.name}"]
+            )
+            title = f"{random.choice(templates)} - Modèle {i+1}"
 
             raw_data = {
                 "asin": asin,
-                "title": f"Produit exemple {i+1} - {category_config.name}",
+                "title": title,
                 "category": category_config.name,
                 "price": float(price),
                 "bsr": bsr,
                 "sales": float(sales),
                 "reviews": reviews,
                 "rating": float(rating),
+                "source": "mock",
             }
 
             mock_products.append(
                 KeepaProduct(
                     asin=asin,
-                    title=raw_data["title"],
+                    title=title,
                     category=category_config.name,
                     avg_price=price,
                     bsr=bsr,
@@ -281,6 +363,12 @@ class KeepaClient:
                 )
             )
 
+        logger.info(
+            "Génération de %s produits mockés pour la catégorie %s",
+            len(mock_products),
+            category_config.name,
+        )
+        
         return mock_products
 
     def _normalize_products(
