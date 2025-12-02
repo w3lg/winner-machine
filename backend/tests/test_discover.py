@@ -114,3 +114,27 @@ def test_discover_response_structure(client: TestClient, db: Session):
         assert "categories_processed" in data["stats"]
         assert "errors" in data["stats"]
 
+
+def test_discover_job_idempotent(client: TestClient, db: Session):
+    """
+    Test que le job Discover est idempotent : 
+    - Premier run : crée des produits (created > 0)
+    - Deuxième run : met à jour les produits (updated > 0, created = 0)
+    - Aucune UniqueViolation ne doit être levée
+    """
+    # Premier run
+    response1 = client.post("/api/v1/jobs/discover/run")
+    assert response1.status_code == 200, f"Premier run a échoué : {response1.text}"
+    data1 = response1.json()
+    assert data1["success"] is True
+    assert data1["stats"]["created"] > 0, "Le premier run devrait créer des produits"
+    
+    # Deuxième run
+    response2 = client.post("/api/v1/jobs/discover/run")
+    assert response2.status_code == 200, f"Deuxième run a échoué : {response2.text}"
+    data2 = response2.json()
+    assert data2["success"] is True
+    assert data2["stats"]["created"] == 0, "Le deuxième run ne devrait pas créer de nouveaux produits"
+    assert data2["stats"]["updated"] > 0, "Le deuxième run devrait mettre à jour les produits existants"
+    assert data2["stats"]["errors"] == 0, "Aucune erreur ne devrait être levée, notamment pas de UniqueViolation"
+
