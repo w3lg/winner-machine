@@ -11,7 +11,6 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, desc
-from sqlalchemy.orm import aliased
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
@@ -169,9 +168,30 @@ async def get_winners(
         # Exécuter la requête
         results = query.all()
 
+        # Grouper par product_id pour éviter les doublons (si plusieurs scores ont le même max_score)
+        # On garde le meilleur score pour chaque produit (global_score max, puis margin_percent max)
+        products_map = {}
+        for row in results:
+            product_id = row.product_id
+            if product_id not in products_map:
+                products_map[product_id] = row
+            else:
+                # Si plusieurs scores existent, garder celui avec le meilleur global_score
+                # En cas d'égalité, garder celui avec le meilleur margin_percent
+                existing = products_map[product_id]
+                if (row.global_score is not None and existing.global_score is not None):
+                    if row.global_score > existing.global_score:
+                        products_map[product_id] = row
+                    elif row.global_score == existing.global_score:
+                        if (row.margin_percent is not None and existing.margin_percent is not None):
+                            if row.margin_percent > existing.margin_percent:
+                                products_map[product_id] = row
+                elif row.global_score is not None:
+                    products_map[product_id] = row
+
         # Convertir en modèles Pydantic
         items = []
-        for row in results:
+        for row in products_map.values():
             items.append(
                 WinnerProductOut(
                     product_id=row.product_id,
@@ -188,6 +208,12 @@ async def get_winners(
                     decision=row.decision,
                 )
             )
+        
+        # Re-trier les items par global_score décroissant (après le groupement)
+        items.sort(
+            key=lambda x: (x.global_score or Decimal("0"), x.margin_percent or Decimal("0")),
+            reverse=True
+        )
 
         filters_applied = {
             "decision": decision,
