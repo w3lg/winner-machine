@@ -270,15 +270,16 @@ class DiscoverJob:
         
         # Construire la requête SQL avec ON CONFLICT DO UPDATE
         # Cette requête garantit qu'il n'y aura jamais de UniqueViolation
+        # Utiliser CAST pour convertir les types PostgreSQL
         sql_query = text("""
             INSERT INTO product_candidates (
                 id, asin, title, category, source_marketplace, avg_price, bsr,
                 estimated_sales_per_day, reviews_count, rating, raw_keepa_data, status,
                 created_at, updated_at
             ) VALUES (
-                :product_id::uuid, :asin, :title, :category, :source_marketplace, 
+                CAST(:product_id AS UUID), :asin, :title, :category, :source_marketplace, 
                 :avg_price, :bsr, :estimated_sales_per_day, :reviews_count, :rating, 
-                :raw_keepa_data::jsonb, :status, 
+                CAST(:raw_keepa_data AS JSONB), :status, 
                 :created_at, NOW()
             )
             ON CONFLICT (asin) DO UPDATE SET
@@ -317,8 +318,12 @@ class DiscoverJob:
         }
         
         # Exécuter l'upsert avec SQL brut - garanti d'éviter les batch INSERT
-        self.db.execute(sql_query, params)
-        self.db.commit()
+        try:
+            self.db.execute(sql_query, params)
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            raise
         
         # Retourner True si nouveau produit, False si mis à jour
         return existing is None
