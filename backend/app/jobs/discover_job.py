@@ -105,6 +105,32 @@ class DiscoverJob:
                 f"{stats['categories_processed']} catégories, "
                 f"{stats['errors']} erreurs"
             )
+        except IntegrityError as e:
+            # Gérer les violations de contrainte unique au commit final
+            if "product_candidates_asin_key" in str(e.orig) or "asin" in str(e.orig).lower():
+                logger.warning(
+                    "Violation de contrainte unique détectée au commit final, "
+                    "les produits ont probablement été flushés individuellement. "
+                    "Le commit est ignoré mais les données sont déjà en base."
+                )
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
+                # Les produits ont déjà été flushés individuellement, donc pas besoin de re-commit
+                logger.info("=== Job de découverte terminé (avec rollback suite à doublon) ===")
+                logger.info(
+                    f"Statistiques globales: {stats['created']} créés, "
+                    f"{stats['updated']} mis à jour, "
+                    f"{stats['total_processed']} traités, "
+                    f"{stats['categories_processed']} catégories, "
+                    f"{stats['errors']} erreurs"
+                )
+            else:
+                logger.error(f"Erreur d'intégrité lors du commit: {str(e)}", exc_info=True)
+                self.db.rollback()
+                stats["errors"] += 1
+                raise
         except SQLAlchemyError as e:
             logger.error(f"Erreur lors du commit en base de données: {str(e)}", exc_info=True)
             self.db.rollback()
@@ -192,14 +218,39 @@ class DiscoverJob:
                     )
                     self.db.add(new_candidate)
                     stats["created"] += 1
+                    # Flush immédiatement pour éviter les doublons dans le batch
+                    try:
+                        self.db.flush()
+                    except IntegrityError as flush_e:
+                        # Si erreur au flush, le produit existe peut-être déjà
+                        if "product_candidates_asin_key" in str(flush_e.orig) or "asin" in str(flush_e.orig).lower():
+                            logger.debug(f"ASIN {asin} existe déjà, rollback et mise à jour")
+                            self.db.rollback()
+                            # Retrouver le produit existant
+                            existing = (
+                                self.db.query(ProductCandidate)
+                                .filter(ProductCandidate.asin == asin)
+                                .first()
+                            )
+                            if existing:
+                                existing.title = keepa_product.title
+                                existing.category = category_config.name
+                                existing.avg_price = keepa_product.avg_price
+                                existing.bsr = keepa_product.bsr
+                                existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
+                                existing.reviews_count = keepa_product.reviews_count
+                                existing.rating = keepa_product.rating
+                                existing.raw_keepa_data = keepa_product.raw_data
+                                existing.source_marketplace = "amazon_fr"
+                                if existing.status not in ["scored", "selected", "launched"]:
+                                    existing.status = "new"
+                                stats["updated"] += 1
+                                stats["created"] -= 1  # Annuler le compteur de création
+                        else:
+                            raise
 
                 # Marquer cet ASIN comme traité
                 self._processed_asins.add(asin)
-                
-                # Flush périodique pour que les nouveaux produits soient visibles
-                # dans les requêtes suivantes (pour éviter les doublons)
-                if stats["created"] % 10 == 0:
-                    self.db.flush()
 
                 stats["total_processed"] += 1
             except IntegrityError as e:
