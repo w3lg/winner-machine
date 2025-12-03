@@ -277,6 +277,21 @@
             border-bottom: none;
         }
 
+        .winners-table a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .winners-table a:hover {
+            text-decoration: underline;
+            color: #5568d3;
+        }
+
+        .winners-table a:visited {
+            color: #8b7fc7;
+        }
+
         .empty-state {
             text-align: center;
             padding: 40px;
@@ -610,8 +625,12 @@
             
             items.forEach(item => {
                 const row = document.createElement('tr');
+                // Créer le lien Amazon FR pour l'ASIN
+                const asinLink = item.asin 
+                    ? `<a href="https://www.amazon.fr/dp/${item.asin}" target="_blank" rel="noopener noreferrer" title="Voir le produit sur Amazon FR">${item.asin}</a>`
+                    : '-';
                 row.innerHTML = `
-                    <td>${item.asin || '-'}</td>
+                    <td>${asinLink}</td>
                     <td>${item.title || '-'}</td>
                     <td>${item.category || '-'}</td>
                     <td>${item.supplier_name || '-'}</td>
