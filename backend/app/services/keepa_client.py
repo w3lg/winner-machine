@@ -675,9 +675,9 @@ class KeepaClient:
                     logger.warning("ASIN invalide ou manquant, produit ignoré: %s", product)
                     continue
 
-                title = product.get("title", "").strip()
+                title = (product.get("title") or "").strip()
                 if not title:
-                    title = product.get("productName", "").strip() or "Sans titre"
+                    title = (product.get("productName") or "").strip() or "Sans titre"
 
                 # Extraire les données depuis les stats Keepa
                 stats = product.get("stats", {})
