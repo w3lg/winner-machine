@@ -286,8 +286,81 @@ class SourcingMatcher:
                 )
                 # Continue avec le fournisseur suivant
 
+        # Si aucune option trouvée, créer une option par défaut
+        if not options:
+            logger.debug(
+                f"Aucun match trouvé pour {candidate.asin}, création d'une option de sourcing par défaut"
+            )
+            default_option = self._create_default_sourcing_option(candidate)
+            if default_option:
+                options.append(default_option)
+
         logger.info(
             f"Trouvé {len(options)} option(s) de sourcing pour le produit {candidate.asin}"
         )
         return options
+
+    def _create_default_sourcing_option(
+        self, candidate: ProductCandidate
+    ) -> Optional[SourcingOption]:
+        """
+        Crée une option de sourcing par défaut pour un produit sans match.
+
+        Cette option utilise des valeurs estimées basées sur le produit lui-même.
+
+        Args:
+            candidate: Produit candidat.
+
+        Returns:
+            Instance SourcingOption par défaut ou None si le produit n'a pas assez de données.
+        """
+        # Calculer un prix d'achat estimé basé sur le prix de vente moyen
+        # Estimation : coût ≈ 40-50% du prix de vente (marge grossière)
+        estimated_unit_cost = None
+        if candidate.avg_price:
+            # Coût estimé : 40% du prix de vente
+            estimated_unit_cost = Decimal(str(float(candidate.avg_price) * 0.4)).quantize(
+                Decimal("0.01")
+            )
+
+        # Si on n'a pas de prix, utiliser une valeur par défaut basée sur la catégorie
+        if not estimated_unit_cost:
+            # Valeurs par défaut par catégorie
+            default_costs = {
+                "Electronics & Photo": Decimal("20.00"),
+                "Home & Kitchen": Decimal("15.00"),
+                "Sports & Outdoors": Decimal("18.00"),
+                "Tools & Home Improvement": Decimal("25.00"),
+                "Beauty & Personal Care": Decimal("10.00"),
+                "Toys & Games": Decimal("12.00"),
+            }
+            category = candidate.category or "Home & Kitchen"
+            estimated_unit_cost = default_costs.get(category, Decimal("15.00"))
+
+        # Déterminer si le produit est brandable (basé sur la catégorie)
+        brandable_categories = {
+            "Electronics & Photo",
+            "Beauty & Personal Care",
+            "Sports & Outdoors",
+        }
+        is_brandable = candidate.category in brandable_categories
+
+        # Créer l'option par défaut
+        return SourcingOption(
+            product_candidate_id=candidate.id,
+            supplier_name="Default Generic Supplier",
+            sourcing_type="EU_wholesale",
+            unit_cost=estimated_unit_cost,
+            shipping_cost_unit=Decimal("2.00"),  # Coût de transport par défaut
+            moq=10,  # Quantité minimale de commande
+            lead_time_days=14,  # Délai de livraison
+            brandable=is_brandable,
+            bundle_capable=False,
+            notes=f"Option de sourcing par défaut générée automatiquement pour {candidate.asin}",
+            raw_supplier_data={
+                "source": "default",
+                "estimated_from_price": str(candidate.avg_price) if candidate.avg_price else None,
+                "category": candidate.category,
+            },
+        )
 
