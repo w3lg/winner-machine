@@ -8,14 +8,16 @@ markets:
     label: "France"
     active: true
     asins:
-      # ASINs de test - à remplacer par de vrais ASINs plus tard
-      - B08XYZ1234
-      - B08ABC5678
-      - B09DEF9012
-      # Exemples d'ASINs Amazon FR réels (pour test)
-      - B08NCR9Y9T  # Casque Bluetooth
-      - B07XYZ1234  # Exemple produit
-      - B08KX5Y3ZP  # Exemple produit
+      - B0CGQ3H5XF
+      - B005LDY0SO
+      - B0CP17BQQS
+      - B084L6FGQ6
+      - B0FLJ9M52V
+      - B0DLHB1QVR
+      - B004L846XO
+      - B0FFYQJXY1
+      - B0FN4C3WK2
+      - B0FW53295F
 
   amazon_de:
     domain: 3
