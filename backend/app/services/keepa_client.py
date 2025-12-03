@@ -697,12 +697,19 @@ class KeepaClient:
                 # PRIORITÉ 1 : buyBoxSellerId == null → Amazon retail, utiliser buyBoxPrice
                 buy_box_seller_id = product.get("buyBoxSellerIdHistory")
                 if buy_box_seller_id is None or (isinstance(buy_box_seller_id, list) and len(buy_box_seller_id) == 0):
-                    # C'est Amazon retail, récupérer le prix depuis stats ou buyBoxPrice
-                    buy_box_price = stats.get("buyBoxPrice")
+                    # C'est Amazon retail, récupérer le prix depuis product.get("buyBoxPrice")
+                    buy_box_price = product.get("buyBoxPrice")
                     if buy_box_price and buy_box_price > 0:
                         # Keepa stocke les prix en centimes
                         avg_price = Decimal(str(buy_box_price)) / Decimal("100")
                         logger.debug(f"Prix Amazon retail (buyBoxPrice) pour {asin}: {avg_price} EUR ({buy_box_price} centimes)")
+                    # Sinon, essayer dans stats
+                    if avg_price is None:
+                        buy_box_price = stats.get("buyBoxPrice")
+                        if buy_box_price and buy_box_price > 0:
+                            # Keepa stocke les prix en centimes
+                            avg_price = Decimal(str(buy_box_price)) / Decimal("100")
+                            logger.debug(f"Prix Amazon retail (stats.buyBoxPrice) pour {asin}: {avg_price} EUR ({buy_box_price} centimes)")
 
                 # PRIORITÉ 2 : Utiliser les moyennes stats (avg30, avg90, avg180)
                 if avg_price is None and isinstance(stats, dict):
