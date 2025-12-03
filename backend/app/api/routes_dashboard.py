@@ -72,7 +72,7 @@ class WinnersResponse(BaseModel):
     """,
 )
 async def get_winners(
-    decision: str = Query("A_launch", description="Décision à filtrer"),
+    decision: Optional[str] = Query(None, description="Décision à filtrer (None = tous)"),
     min_margin_percent: Optional[float] = Query(None, description="Marge minimum en %"),
     min_global_score: Optional[float] = Query(None, description="Score global minimum"),
     min_sales_per_day: Optional[float] = Query(None, description="Ventes par jour minimum"),

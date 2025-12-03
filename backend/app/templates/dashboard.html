@@ -376,10 +376,10 @@
                 <div class="filter-group">
                     <label for="filter-decision">Décision</label>
                     <select id="filter-decision">
+                        <option value="Tous" selected>Tous</option>
                         <option value="A_launch">A_launch</option>
                         <option value="B_review">B_review</option>
                         <option value="C_drop">C_drop</option>
-                        <option value="Tous">Tous</option>
                     </select>
                 </div>
                 
@@ -797,10 +797,10 @@
         }
         
         function resetFilters() {
-            document.getElementById('filter-decision').value = 'A_launch';
-            document.getElementById('filter-min-margin').value = '20';
-            document.getElementById('filter-min-score').value = '50';
-            document.getElementById('filter-min-sales').value = '1';
+            document.getElementById('filter-decision').value = 'Tous';
+            document.getElementById('filter-min-margin').value = '';
+            document.getElementById('filter-min-score').value = '';
+            document.getElementById('filter-min-sales').value = '';
             document.getElementById('filter-limit').value = '50';
             loadWinners();
         }
