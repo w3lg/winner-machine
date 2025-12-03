@@ -102,7 +102,8 @@ class KeepaClient:
                     "key": self.api_key,
                     "domain": domain,
                     "asin": asin_string,
-                    "stats": 180,  # Stats sur 180 jours
+                    # Note: Le paramètre 'stats' n'est pas supporté par l'endpoint /product
+                    # Il est utilisé uniquement pour les endpoints de recherche
                 }
 
                 try:
@@ -161,7 +162,7 @@ class KeepaClient:
                         str(e),
                         error_msg,
                     )
-                    # Continue avec le batch suivant
+                    # Continue avec le batch suivant (on utilisera le fallback à la fin)
                     continue
                 except Exception as e:
                     logger.error(
@@ -171,7 +172,7 @@ class KeepaClient:
                         str(e),
                         exc_info=True,
                     )
-                    # Continue avec le batch suivant
+                    # Continue avec le batch suivant (on utilisera le fallback à la fin)
                     continue
 
             if not all_products:
