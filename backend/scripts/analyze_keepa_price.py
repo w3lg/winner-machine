@@ -29,6 +29,25 @@ try:
     product = data["products"][0]
     print(f"\n✅ Produit: {product.get('title', 'N/A')[:60]}...")
 
+    # Afficher TOUTES les clés du produit
+    print(f"\n🔑 TOUTES LES CLÉS DU PRODUIT:")
+    for key in sorted(product.keys()):
+        val = product[key]
+        if key not in ["csv", "categoryTree", "categoryTreeParent"]:  # Trop long
+            if isinstance(val, (int, float)):
+                if val > 0 and val < 1000000:
+                    print(f"   {key}: {val}")
+                else:
+                    print(f"   {key}: {val}")
+            elif isinstance(val, str) and len(val) < 100:
+                print(f"   {key}: {val[:60]}...")
+            elif isinstance(val, dict):
+                print(f"   {key}: dict avec {len(val)} clés")
+            elif isinstance(val, list):
+                print(f"   {key}: list avec {len(val)} éléments")
+            else:
+                print(f"   {key}: {type(val).__name__}")
+
     # Analyser STATS
     stats = product.get("stats", {})
     print(f"\n📊 STATS:")
