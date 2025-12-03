@@ -130,8 +130,10 @@ class DiscoverJob:
         stats = {"created": 0, "updated": 0, "total_processed": 0, "errors": 0}
 
         try:
-            # Récupérer les produits depuis Keepa
-            products = self.keepa_client.get_top_products_by_category(category_config)
+            # Récupérer 50-200 produits depuis Keepa pour cette catégorie
+            # Utiliser un nombre raisonnable (150) pour avoir assez de produits sans surcharger l'API
+            limit = min(200, max(50, 150))  # Entre 50 et 200, par défaut 150
+            products = self.keepa_client.get_top_products_by_category(category_config, limit=limit)
         except Exception as e:
             logger.error(
                 f"Erreur KeepaClient pour la catégorie {category_config.name}: {str(e)}",

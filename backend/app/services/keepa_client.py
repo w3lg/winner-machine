@@ -62,13 +62,14 @@ class KeepaClient:
 
         Args:
             category_config: Configuration de la catégorie.
-            limit: Nombre maximum de produits à récupérer (20-200).
+            limit: Nombre maximum de produits à récupérer (50-200).
 
         Returns:
             Liste des produits normalisés.
 
         Note:
             Si KEEPA_API_KEY n'est pas définie, retourne des données mockées.
+            Si l'API Keepa échoue, retourne une liste vide (ne plantera pas le job).
         """
         if not self.api_key:
             logger.warning(
@@ -85,114 +86,117 @@ class KeepaClient:
                 limit,
             )
 
-            # Appel à l'API Keepa pour récupérer les bestsellers par catégorie
-            # Endpoint: https://api.keepa.com/bestsellers
-            # domain=1 = Amazon FR
+            # Essayer l'endpoint /product avec le paramètre category
+            # Format: https://api.keepa.com/product?key=API_KEY&domain=1&category=CATEGORY_ID&stats=180
             params = {
                 "key": self.api_key,
                 "domain": 1,  # 1 = Amazon FR
                 "category": str(category_config.id),
-                "range": min(limit, 200),  # Nombre de produits (max 200)
+                "stats": 180,  # Stats sur 180 jours
             }
 
             try:
                 with httpx.Client(timeout=self.timeout) as client:
                     response = client.get(
-                        f"{self.base_url}/bestsellers",
+                        f"{self.base_url}/product",
                         params=params,
                     )
                     response.raise_for_status()
                     data = response.json()
 
-                # Vérifier si la réponse contient des ASINs
-                if "asinList" not in data or not data.get("asinList"):
-                    logger.warning(
-                        "Aucun ASIN retourné par Keepa bestsellers pour la catégorie %s",
+                logger.debug(f"Réponse Keepa API pour catégorie {category_config.name}: {data}")
+
+                # Vérifier la structure de la réponse Keepa
+                products = []
+                if "products" in data:
+                    products = data["products"]
+                elif isinstance(data, list):
+                    products = data
+                elif "asinList" in data:
+                    # Si on a seulement une liste d'ASINs, on doit les enrichir
+                    asin_list = data["asinList"]
+                    logger.info(
+                        "Keepa a retourné %s ASINs pour la catégorie %s, enrichissement en cours...",
+                        len(asin_list),
                         category_config.name,
                     )
+                    products = self._enrich_asins(asin_list[:limit])
+                else:
+                    logger.warning(
+                        "Structure de réponse Keepa inattendue pour la catégorie %s: %s",
+                        category_config.name,
+                        list(data.keys()) if isinstance(data, dict) else type(data),
+                    )
                     return []
-
-                asin_list = data["asinList"][:limit]  # Limiter au nombre demandé
-                logger.info(
-                    "Keepa bestsellers a retourné %s ASINs pour la catégorie %s",
-                    len(asin_list),
-                    category_config.name,
-                )
-
-                # Récupérer les détails de chaque produit via l'endpoint /product
-                products = []
-                batch_size = 100  # Keepa permet jusqu'à 100 ASINs par requête
-                
-                for i in range(0, len(asin_list), batch_size):
-                    batch_asins = asin_list[i:i + batch_size]
-                    asin_string = ",".join(batch_asins)
-                    
-                    product_params = {
-                        "key": self.api_key,
-                        "domain": 1,
-                        "asin": asin_string,
-                        "stats": 180,
-                    }
-                    
-                    with httpx.Client(timeout=self.timeout) as client:
-                        batch_response = client.get(
-                            f"{self.base_url}/product",
-                            params=product_params,
-                        )
-                        batch_response.raise_for_status()
-                        batch_data = batch_response.json()
-                        
-                        if "products" in batch_data:
-                            products.extend(batch_data["products"])
 
                 if not products:
                     logger.warning(
-                        "Aucun produit détaillé retourné pour les ASINs de la catégorie %s",
+                        "Aucun produit retourné par Keepa pour la catégorie %s",
                         category_config.name,
                     )
                     return []
 
+                logger.info(
+                    "Keepa a retourné %s produits bruts pour la catégorie %s",
+                    len(products),
+                    category_config.name,
+                )
+
                 # Normaliser les produits
                 normalized = self._normalize_products(products, category_config)
-                return normalized
+                
+                logger.info(
+                    "%s produits normalisés pour la catégorie %s (sur %s produits bruts)",
+                    len(normalized),
+                    category_config.name,
+                    len(products),
+                )
+                
+                return normalized[:limit]  # Limiter au nombre demandé
 
             except httpx.HTTPStatusError as e:
-                # Si /bestsellers ne fonctionne pas, utiliser le mode mock enrichi
-                logger.warning(
-                    "Endpoint /bestsellers non disponible ou erreur HTTP %s pour la catégorie %s. "
-                    "Utilisation du mode mock enrichi (%s produits)",
+                error_msg = ""
+                try:
+                    error_body = e.response.json()
+                    error_msg = f" - {error_body}"
+                except:
+                    error_msg = f" - {e.response.text[:200]}"
+                
+                logger.error(
+                    "Erreur HTTP %s lors de l'appel Keepa pour la catégorie %s: %s%s",
                     e.response.status_code,
                     category_config.name,
-                    limit,
+                    str(e),
+                    error_msg,
                 )
-                return self._mock_products(category_config, limit)
+                # NE PAS retourner de mock, retourner une liste vide
+                # Le job continuera avec les autres catégories
+                return []
             except Exception as e:
-                # En cas d'erreur inattendue, utiliser le mode mock
-                logger.warning(
-                    "Erreur lors de l'appel Keepa pour la catégorie %s: %s. "
-                    "Utilisation du mode mock enrichi",
+                logger.error(
+                    "Erreur lors de l'appel Keepa pour la catégorie %s: %s",
                     category_config.name,
                     str(e),
+                    exc_info=True,
                 )
-                return self._mock_products(category_config, limit)
+                # NE PAS retourner de mock, retourner une liste vide
+                return []
 
         except httpx.RequestError as e:
-            logger.warning(
-                "Erreur de requête Keepa pour la catégorie %s: %s. "
-                "Utilisation du mode mock enrichi",
+            logger.error(
+                "Erreur de requête Keepa pour la catégorie %s: %s",
                 category_config.name,
                 str(e),
             )
-            return self._mock_products(category_config, limit)
+            return []
         except Exception as e:
-            logger.warning(
-                "Erreur inattendue lors de l'appel Keepa pour la catégorie %s: %s. "
-                "Utilisation du mode mock enrichi",
+            logger.error(
+                "Erreur inattendue lors de l'appel Keepa pour la catégorie %s: %s",
                 category_config.name,
                 str(e),
                 exc_info=True,
             )
-            return self._mock_products(category_config, limit)
+            return []
 
     def _mock_products(
         self, category_config: CategoryConfig, limit: int
@@ -339,6 +343,58 @@ class KeepaClient:
         
         return mock_products
 
+    def _enrich_asins(self, asin_list: List[str]) -> List[dict]:
+        """
+        Enrichit une liste d'ASINs avec les détails des produits via l'endpoint /product.
+
+        Args:
+            asin_list: Liste d'ASINs à enrichir.
+
+        Returns:
+            Liste de produits bruts depuis Keepa.
+        """
+        if not asin_list:
+            return []
+
+        products = []
+        batch_size = 100  # Keepa permet jusqu'à 100 ASINs par requête
+
+        for i in range(0, len(asin_list), batch_size):
+            batch_asins = asin_list[i:i + batch_size]
+            asin_string = ",".join(batch_asins)
+
+            product_params = {
+                "key": self.api_key,
+                "domain": 1,  # Amazon FR
+                "asin": asin_string,
+                "stats": 180,  # Stats sur 180 jours
+            }
+
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    response = client.get(
+                        f"{self.base_url}/product",
+                        params=product_params,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                if "products" in data:
+                    products.extend(data["products"])
+                elif isinstance(data, list):
+                    products.extend(data)
+
+            except Exception as e:
+                logger.warning(
+                    "Erreur lors de l'enrichissement du batch d'ASINs (positions %s-%s): %s",
+                    i,
+                    min(i + batch_size, len(asin_list)),
+                    str(e),
+                )
+                continue
+
+        return products
+
     def _normalize_products(
         self, products: List[dict], category_config: CategoryConfig
     ) -> List[KeepaProduct]:
@@ -361,17 +417,36 @@ class KeepaClient:
                     logger.warning("ASIN invalide ou manquant, produit ignoré: %s", product)
                     continue
 
-                title = product.get("title", "Sans titre").strip()
+                title = product.get("title", "").strip()
+                if not title:
+                    title = product.get("productName", "").strip() or "Sans titre"
 
-                # Prix moyen (90 derniers jours) - Keepa utilise parfois "stats" ou "csv"
+                # Extraire les données depuis les stats Keepa
+                stats = product.get("stats", {})
+
+                # Prix moyen (depuis les stats ou CSV Keepa)
+                # Keepa stocke les prix dans un array CSV encodé, on utilise les stats si disponibles
                 avg_price = None
-                if "price" in product:
-                    price_obj = product["price"]
-                    # Prendre le prix Amazon ou le prix moyen
-                    if isinstance(price_obj, dict):
-                        avg_price = price_obj.get("amazon") or price_obj.get("current")
-                    elif isinstance(price_obj, (int, float)):
-                        avg_price = price_obj
+                
+                # Essayer depuis stats.current
+                if isinstance(stats, dict):
+                    current_price = stats.get("current", None)
+                    if current_price:
+                        avg_price = Decimal(str(current_price))
+                    else:
+                        # Essayer avg90 ou avg180
+                        avg_price = stats.get("avg90") or stats.get("avg180")
+                        if avg_price:
+                            avg_price = Decimal(str(avg_price))
+
+                # Si pas de prix dans stats, essayer directement dans product
+                if avg_price is None:
+                    if "price" in product:
+                        price_obj = product["price"]
+                        if isinstance(price_obj, dict):
+                            avg_price = price_obj.get("amazon") or price_obj.get("current")
+                        elif isinstance(price_obj, (int, float)):
+                            avg_price = price_obj
                 
                 # Convertir en Decimal si nécessaire
                 if avg_price is not None:
@@ -396,9 +471,13 @@ class KeepaClient:
                     except (ValueError, TypeError):
                         avg_price = None
 
-                # BSR (Best Seller Rank)
+                # BSR (Best Seller Rank) depuis stats
                 bsr = None
-                if "salesRank" in product:
+                if isinstance(stats, dict):
+                    bsr = stats.get("salesRank") or stats.get("salesRankCurrent")
+                
+                # Si pas dans stats, essayer directement
+                if bsr is None and "salesRank" in product:
                     sales_rank = product["salesRank"]
                     if isinstance(sales_rank, dict):
                         bsr = sales_rank.get("current") or sales_rank.get("latest")
@@ -416,38 +495,49 @@ class KeepaClient:
                         )
                         continue
 
-                # Estimations de ventes par jour
-                # Keepa peut fournir salesRankDrops90 ou d'autres métriques
+                # Estimations de ventes par jour depuis stats
                 estimated_sales_per_day = None
-                if "stats" in product:
-                    stats = product["stats"]
-                    if isinstance(stats, dict):
-                        # salesRankDrops90 peut donner une idée des ventes
-                        rank_drops = stats.get("salesRankDrops90", 0)
-                        if rank_drops > 0:
-                            # Estimation approximative: plus de drops = plus de ventes
-                            # Formule simple: rank_drops / 90 jours
-                            estimated_sales_per_day = Decimal(str(rank_drops / 90)).quantize(
-                                Decimal("0.01")
-                            )
+                if isinstance(stats, dict):
+                    # salesRankDrops90 = nombre de fois que le BSR a baissé en 90 jours
+                    # Plus de drops = plus de ventes
+                    rank_drops = stats.get("salesRankDrops90", 0)
+                    if rank_drops and rank_drops > 0:
+                        # Estimation simplifiée: drops / 90 jours
+                        estimated_sales_per_day = Decimal(str(rank_drops / 90)).quantize(
+                            Decimal("0.01")
+                        )
+                
+                # Si pas d'estimation, utiliser une estimation basée sur le BSR
+                if estimated_sales_per_day is None and bsr:
+                    # Formule approximative: ventes ≈ 10000 / BSR
+                    estimated_sales = max(0.5, min(100.0, 10000.0 / bsr))
+                    estimated_sales_per_day = Decimal(str(estimated_sales)).quantize(Decimal("0.01"))
 
-                # Reviews
+                # Reviews depuis stats
                 reviews_count = None
                 rating = None
-                if "reviews" in product:
-                    reviews = product["reviews"]
-                    if isinstance(reviews, dict):
-                        reviews_count = reviews.get("count") or reviews.get("total")
-                        rating = reviews.get("rating") or reviews.get("average")
-                elif "reviewCount" in product:
-                    reviews_count = product["reviewCount"]
-                elif "totalReviews" in product:
-                    reviews_count = product["totalReviews"]
+                
+                if isinstance(stats, dict):
+                    reviews_count = stats.get("reviewCount") or stats.get("totalReviews")
+                    rating = stats.get("avgRating") or stats.get("rating")
 
-                if "rating" in product:
-                    rating = product["rating"]
-                elif "avgRating" in product:
-                    rating = product["avgRating"]
+                # Si pas dans stats, essayer directement dans product
+                if reviews_count is None:
+                    if "reviews" in product:
+                        reviews = product["reviews"]
+                        if isinstance(reviews, dict):
+                            reviews_count = reviews.get("count") or reviews.get("total")
+                            rating = reviews.get("rating") or reviews.get("average")
+                    elif "reviewCount" in product:
+                        reviews_count = product["reviewCount"]
+                    elif "totalReviews" in product:
+                        reviews_count = product["totalReviews"]
+
+                if rating is None:
+                    if "rating" in product:
+                        rating = product["rating"]
+                    elif "avgRating" in product:
+                        rating = product["avgRating"]
 
                 # Convertir rating en Decimal
                 if rating is not None:
@@ -455,6 +545,12 @@ class KeepaClient:
                         rating = Decimal(str(rating)).quantize(Decimal("0.01"))
                     except (ValueError, TypeError):
                         rating = None
+
+                # Ajouter la source "keepa_api" dans raw_data pour identifier les vrais produits
+                raw_data_with_source = dict(product) if isinstance(product, dict) else product
+                if isinstance(raw_data_with_source, dict):
+                    raw_data_with_source["source"] = "keepa_api"
+                    raw_data_with_source["domain"] = 1  # Amazon FR
 
                 # Créer le produit normalisé
                 normalized_product = KeepaProduct(
@@ -466,7 +562,7 @@ class KeepaClient:
                     estimated_sales_per_day=estimated_sales_per_day,
                     reviews_count=reviews_count,
                     rating=rating,
-                    raw_data=product,
+                    raw_data=raw_data_with_source,
                 )
 
                 normalized.append(normalized_product)
