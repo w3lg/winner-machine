@@ -102,8 +102,7 @@ class KeepaClient:
                     "key": self.api_key,
                     "domain": domain,
                     "asin": asin_string,
-                    # Note: Le paramètre 'stats' n'est pas supporté par l'endpoint /product
-                    # Il est utilisé uniquement pour les endpoints de recherche
+                    "stats": 180,  # Demander les stats sur 180 jours pour obtenir avg180, current, etc.
                 }
 
                 try:
@@ -706,7 +705,27 @@ class KeepaClient:
                         if avg_price:
                             avg_price = Decimal(str(avg_price))
 
-                # Si pas de prix dans stats, essayer directement dans product
+                # Si pas de prix dans stats, décoder depuis le CSV array
+                # Keepa stocke les prix dans csv[0] au format [timestamp, price_centimes, ...]
+                if avg_price is None:
+                    csv_arrays = product.get("csv", [])
+                    if csv_arrays and len(csv_arrays) > 0:
+                        amazon_price_array = csv_arrays[0]  # Array 0 = prix Amazon
+                        if amazon_price_array and len(amazon_price_array) >= 2:
+                            # Format: [timestamp1, price1, timestamp2, price2, ...]
+                            # Les prix sont en centimes, chercher le dernier prix valide (> 0)
+                            for i in range(len(amazon_price_array) - 1, 1, -2):
+                                if i > 0 and i < len(amazon_price_array):
+                                    price_cents = amazon_price_array[i]
+                                    if price_cents and price_cents > 0:  # -1 = pas de prix
+                                        # Convertir centimes en EUR
+                                        avg_price = Decimal(str(price_cents)) / Decimal("100")
+                                        logger.debug(
+                                            f"Prix extrait depuis CSV array pour {asin}: {avg_price} EUR ({price_cents} centimes)"
+                                        )
+                                        break
+
+                # Si toujours pas de prix, essayer directement dans product
                 if avg_price is None:
                     if "price" in product:
                         price_obj = product["price"]
