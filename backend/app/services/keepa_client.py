@@ -711,16 +711,55 @@ class KeepaClient:
                             avg_price = Decimal(str(buy_box_price)) / Decimal("100")
                             logger.debug(f"Prix Amazon retail (stats.buyBoxPrice) pour {asin}: {avg_price} EUR ({buy_box_price} centimes)")
 
-                # PRIORITÉ 2 : Utiliser les moyennes stats (avg30, avg90, avg180)
+                # PRIORITÉ 2 : Utiliser stats.current[0] (prix Amazon retail actuel)
+                if avg_price is None and isinstance(stats, dict):
+                    current_price = stats.get("current")
+                    if current_price:
+                        # current peut être un array [prix_array_0, prix_array_1, ...]
+                        # Array 0 = prix Amazon retail
+                        if isinstance(current_price, list) and len(current_price) > 0:
+                            current_amazon_price = current_price[0]  # Index 0 = Amazon retail
+                            if current_amazon_price and current_amazon_price > 0:
+                                avg_price = Decimal(str(current_amazon_price)) / Decimal("100")
+                                logger.debug(f"Prix depuis stats.current[0] pour {asin}: {avg_price} EUR ({current_amazon_price} centimes)")
+                        elif isinstance(current_price, (int, float)) and current_price > 0:
+                            avg_price = Decimal(str(current_price)) / Decimal("100")
+                            logger.debug(f"Prix depuis stats.current pour {asin}: {avg_price} EUR ({current_price} centimes)")
+                
+                # PRIORITÉ 2b : Utiliser les moyennes stats (avg30, avg90, avg180) - Array 0 = Amazon retail
                 if avg_price is None and isinstance(stats, dict):
                     # Essayer dans l'ordre : avg30 → avg90 → avg180
                     for stat_key in ["avg30", "avg90", "avg180"]:
                         stat_price = stats.get(stat_key)
-                        if stat_price and stat_price > 0:
-                            # Keepa stocke les prix en centimes
-                            avg_price = Decimal(str(stat_price)) / Decimal("100")
-                            logger.debug(f"Prix depuis stats.{stat_key} pour {asin}: {avg_price} EUR ({stat_price} centimes)")
-                            break
+                        if stat_price:
+                            # Ces stats peuvent aussi être des arrays
+                            if isinstance(stat_price, list) and len(stat_price) > 0:
+                                amazon_price = stat_price[0]  # Index 0 = Amazon retail
+                                if amazon_price and amazon_price > 0:
+                                    avg_price = Decimal(str(amazon_price)) / Decimal("100")
+                                    logger.debug(f"Prix depuis stats.{stat_key}[0] pour {asin}: {avg_price} EUR ({amazon_price} centimes)")
+                                    break
+                            elif isinstance(stat_price, (int, float)) and stat_price > 0:
+                                avg_price = Decimal(str(stat_price)) / Decimal("100")
+                                logger.debug(f"Prix depuis stats.{stat_key} pour {asin}: {avg_price} EUR ({stat_price} centimes)")
+                                break
+                
+                # PRIORITÉ 2c : Extraire le prix depuis le CSV array[0] (historique prix Amazon retail)
+                # Format: [timestamp1, price1, timestamp2, price2, ...] - prix en centimes
+                if avg_price is None:
+                    csv_arrays = product.get("csv", [])
+                    if csv_arrays and len(csv_arrays) > 0:
+                        # Array 0 = Amazon retail price history
+                        amazon_price_array = csv_arrays[0]
+                        if amazon_price_array and len(amazon_price_array) >= 2:
+                            # Chercher le dernier prix valide (parcourir de la fin)
+                            for i in range(len(amazon_price_array) - 1, -1, -1):
+                                price_val = amazon_price_array[i]
+                                # Prix valide : entre 1000 et 1000000 centimes (10€ - 10000€)
+                                if price_val and isinstance(price_val, (int, float)) and 1000 <= price_val <= 1000000:
+                                    avg_price = Decimal(str(price_val)) / Decimal("100")
+                                    logger.debug(f"Prix depuis CSV array[0] (index {i}) pour {asin}: {avg_price} EUR ({price_val} centimes)")
+                                    break
 
                 # PRIORITÉ 3 : Utiliser currentPrices (offres live)
                 if avg_price is None:
