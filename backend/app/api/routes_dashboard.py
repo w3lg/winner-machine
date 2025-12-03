@@ -33,6 +33,7 @@ class WinnerProductOut(BaseModel):
     supplier_name: str | None = Field(description="Nom du fournisseur")
     purchase_price: Decimal | None = Field(description="Prix d'achat (unit_cost)")
     selling_price_target: Decimal = Field(description="Prix de vente cible")
+    amazon_fees_estimate: Decimal | None = Field(description="Frais Amazon estimés (EUR)")
     margin_absolute: Decimal | None = Field(description="Marge absolue (EUR)")
     margin_percent: Decimal | None = Field(description="Marge en pourcentage")
     estimated_sales_per_day: Decimal | None = Field(description="Ventes estimées par jour")
@@ -101,6 +102,7 @@ async def get_winners(
                 SourcingOption.supplier_name,
                 SourcingOption.unit_cost.label("purchase_price"),
                 ProductScore.selling_price_target,
+                ProductScore.amazon_fees_estimate,
                 ProductScore.margin_absolute,
                 ProductScore.margin_percent,
                 ProductScore.estimated_sales_per_day,
@@ -173,6 +175,7 @@ async def get_winners(
                     supplier_name=row.supplier_name,
                     purchase_price=row.purchase_price,
                     selling_price_target=row.selling_price_target,
+                    amazon_fees_estimate=row.amazon_fees_estimate,
                     margin_absolute=row.margin_absolute,
                     margin_percent=row.margin_percent,
                     estimated_sales_per_day=row.estimated_sales_per_day,

@@ -220,6 +220,48 @@
             font-weight: 600;
             position: sticky;
             top: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .winners-table th:hover {
+            background: #5568d3;
+        }
+
+        .winners-table th.sortable {
+            position: relative;
+            padding-right: 25px;
+        }
+
+        .winners-table th.sortable::after {
+            content: '';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            opacity: 0.5;
+        }
+
+        .winners-table th.sort-asc::after {
+            border-bottom: 6px solid white;
+            border-top: none;
+            opacity: 1;
+        }
+
+        .winners-table th.sort-desc::after {
+            border-top: 6px solid white;
+            border-bottom: none;
+            opacity: 1;
+        }
+
+        .winners-table th.sort-default::after {
+            opacity: 0.3;
+            border-top: 3px solid white;
+            border-bottom: 3px solid white;
         }
 
         .winners-table td {
@@ -349,17 +391,18 @@
             <table class="winners-table" id="winners-table" style="display: none;">
                 <thead>
                     <tr>
-                        <th>ASIN</th>
-                        <th>Titre</th>
-                        <th>Catégorie</th>
-                        <th>Fournisseur</th>
-                        <th>Prix achat</th>
-                        <th>Prix vente</th>
-                        <th>Marge €</th>
-                        <th>Marge %</th>
-                        <th>Ventes/jour</th>
-                        <th>Score</th>
-                        <th>Decision</th>
+                        <th class="sortable" data-sort="asin">ASIN</th>
+                        <th class="sortable" data-sort="title">Titre</th>
+                        <th class="sortable" data-sort="category">Catégorie</th>
+                        <th class="sortable" data-sort="supplier_name">Fournisseur</th>
+                        <th class="sortable" data-sort="purchase_price">Prix achat</th>
+                        <th class="sortable" data-sort="selling_price_target">Prix vente</th>
+                        <th class="sortable" data-sort="amazon_fees_estimate">Frais Amazon</th>
+                        <th class="sortable" data-sort="margin_absolute">Marge €</th>
+                        <th class="sortable" data-sort="margin_percent">Marge %</th>
+                        <th class="sortable" data-sort="estimated_sales_per_day">Ventes/jour</th>
+                        <th class="sortable" data-sort="global_score">Score</th>
+                        <th class="sortable" data-sort="decision">Decision</th>
                     </tr>
                 </thead>
                 <tbody id="winners-tbody">
@@ -459,6 +502,10 @@
             'pipeline_abcde': document.getElementById('btn-pipeline_abcde') ? '✓' : '✗'
         });
         
+        // Variable globale pour stocker les données des winners
+        let winnersData = [];
+        let currentSort = { column: null, direction: null }; // null = tri par défaut (rentabilité)
+        
         // Fonctions pour charger et afficher les winners
         async function loadWinners() {
             const loadingEl = document.getElementById('winners-loading');
@@ -487,7 +534,8 @@
             if (minSales) {
                 params.append('min_sales_per_day', minSales);
             }
-            params.append('limit', limit);
+            // Augmenter la limite côté serveur pour permettre le tri côté client
+            params.append('limit', Math.max(limit, 500));
             
             const url = `/api/v1/dashboard/winners?${params.toString()}`;
             console.log('Chargement des winners:', url);
@@ -508,40 +556,175 @@
                 console.log('Winners reçus:', data);
                 
                 if (data.success && data.items && data.items.length > 0) {
+                    // Sauvegarder les données dans la variable globale
+                    winnersData = data.items;
+                    
+                    // Trier par défaut par rentabilité (global_score DESC, puis margin_percent DESC)
+                    if (!currentSort.column) {
+                        winnersData.sort((a, b) => {
+                            const scoreA = parseFloat(a.global_score) || 0;
+                            const scoreB = parseFloat(b.global_score) || 0;
+                            if (scoreB !== scoreA) {
+                                return scoreB - scoreA; // DESC
+                            }
+                            const marginA = parseFloat(a.margin_percent) || 0;
+                            const marginB = parseFloat(b.margin_percent) || 0;
+                            return marginB - marginA; // DESC
+                        });
+                    } else {
+                        // Appliquer le tri actuel
+                        applySort(currentSort.column, currentSort.direction);
+                    }
+                    
+                    // Limiter à la limite demandée
+                    const limitedData = winnersData.slice(0, parseInt(limit));
+                    
                     // Afficher le tableau
-                    tbodyEl.innerHTML = '';
-                    data.items.forEach(item => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td>${item.asin || '-'}</td>
-                            <td>${item.title || '-'}</td>
-                            <td>${item.category || '-'}</td>
-                            <td>${item.supplier_name || '-'}</td>
-                            <td>${formatNumber(item.purchase_price, 2, '€')}</td>
-                            <td>${formatNumber(item.selling_price_target, 2, '€')}</td>
-                            <td>${formatNumber(item.margin_absolute, 2, '€')}</td>
-                            <td>${formatNumber(item.margin_percent, 2, '%')}</td>
-                            <td>${formatNumber(item.estimated_sales_per_day, 2)}</td>
-                            <td>${formatNumber(item.global_score, 2)}</td>
-                            <td><span class="status ${getDecisionClass(item.decision)}">${item.decision || '-'}</span></td>
-                        `;
-                        tbodyEl.appendChild(row);
-                    });
+                    renderTable(limitedData);
+                    
+                    // Mettre à jour les indicateurs de tri
+                    updateSortIndicators();
                     
                     tableEl.style.display = 'table';
                     emptyEl.style.display = 'none';
                 } else {
+                    winnersData = [];
                     // Afficher le message vide
                     tableEl.style.display = 'none';
                     emptyEl.style.display = 'block';
                 }
             } catch (error) {
                 console.error('Erreur lors du chargement des winners:', error);
+                winnersData = [];
                 emptyEl.innerHTML = `Erreur: ${error.message}`;
                 emptyEl.style.display = 'block';
                 tableEl.style.display = 'none';
             } finally {
                 loadingEl.style.display = 'none';
+            }
+        }
+        
+        function renderTable(items) {
+            const tbodyEl = document.getElementById('winners-tbody');
+            tbodyEl.innerHTML = '';
+            
+            items.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.asin || '-'}</td>
+                    <td>${item.title || '-'}</td>
+                    <td>${item.category || '-'}</td>
+                    <td>${item.supplier_name || '-'}</td>
+                    <td>${formatNumber(item.purchase_price, 2, '€')}</td>
+                    <td>${formatNumber(item.selling_price_target, 2, '€')}</td>
+                    <td>${formatNumber(item.amazon_fees_estimate, 2, '€')}</td>
+                    <td>${formatNumber(item.margin_absolute, 2, '€')}</td>
+                    <td>${formatNumber(item.margin_percent, 2, '%')}</td>
+                    <td>${formatNumber(item.estimated_sales_per_day, 2)}</td>
+                    <td>${formatNumber(item.global_score, 2)}</td>
+                    <td><span class="status ${getDecisionClass(item.decision)}">${item.decision || '-'}</span></td>
+                `;
+                tbodyEl.appendChild(row);
+            });
+        }
+        
+        function applySort(column, direction) {
+            if (!column || direction === null) {
+                // Tri par défaut : rentabilité (global_score DESC + margin_percent DESC)
+                winnersData.sort((a, b) => {
+                    const scoreA = parseFloat(a.global_score) || 0;
+                    const scoreB = parseFloat(b.global_score) || 0;
+                    if (scoreB !== scoreA) {
+                        return scoreB - scoreA;
+                    }
+                    const marginA = parseFloat(a.margin_percent) || 0;
+                    const marginB = parseFloat(b.margin_percent) || 0;
+                    return marginB - marginA;
+                });
+                return;
+            }
+            
+            winnersData.sort((a, b) => {
+                let valA = a[column];
+                let valB = b[column];
+                
+                // Convertir en nombre si possible
+                if (valA !== null && valA !== undefined && !isNaN(valA)) {
+                    valA = parseFloat(valA);
+                    valB = parseFloat(valB) || 0;
+                } else if (valA === null || valA === undefined || valA === '') {
+                    valA = '';
+                }
+                if (valB === null || valB === undefined || valB === '') {
+                    valB = '';
+                }
+                
+                // Comparaison
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                } else {
+                    const strA = String(valA || '').toLowerCase();
+                    const strB = String(valB || '').toLowerCase();
+                    if (direction === 'asc') {
+                        return strA.localeCompare(strB);
+                    } else {
+                        return strB.localeCompare(strA);
+                    }
+                }
+            });
+        }
+        
+        function handleSort(column) {
+            // Récupérer le header cliqué
+            const header = document.querySelector(`th[data-sort="${column}"]`);
+            if (!header) return;
+            
+            // Si c'est déjà la colonne triée, changer la direction
+            if (currentSort.column === column) {
+                if (currentSort.direction === 'asc') {
+                    currentSort.direction = 'desc';
+                } else if (currentSort.direction === 'desc') {
+                    // Retour au tri par défaut
+                    currentSort.column = null;
+                    currentSort.direction = null;
+                } else {
+                    currentSort.direction = 'asc';
+                }
+            } else {
+                // Nouvelle colonne, commencer par ascendant
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+            
+            // Appliquer le tri
+            applySort(currentSort.column, currentSort.direction);
+            
+            // Mettre à jour les indicateurs visuels
+            updateSortIndicators();
+            
+            // Récupérer la limite et re-rendre
+            const limit = parseInt(document.getElementById('filter-limit').value || 50);
+            const limitedData = winnersData.slice(0, limit);
+            renderTable(limitedData);
+        }
+        
+        function updateSortIndicators() {
+            // Réinitialiser tous les headers
+            document.querySelectorAll('.winners-table th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc', 'sort-default');
+            });
+            
+            if (currentSort.column && currentSort.direction) {
+                const header = document.querySelector(`th[data-sort="${currentSort.column}"]`);
+                if (header) {
+                    header.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            } else {
+                // Tri par défaut : marquer la colonne Score comme triée par défaut
+                const scoreHeader = document.querySelector('th[data-sort="global_score"]');
+                if (scoreHeader) {
+                    scoreHeader.classList.add('sort-default');
+                }
             }
         }
         
@@ -580,6 +763,16 @@
         // Charger les winners automatiquement au chargement de la page
         document.addEventListener('DOMContentLoaded', function() {
             resetFilters();
+            
+            // Ajouter les event listeners pour le tri
+            document.querySelectorAll('.winners-table th.sortable').forEach(th => {
+                th.addEventListener('click', function() {
+                    const column = this.getAttribute('data-sort');
+                    if (column) {
+                        handleSort(column);
+                    }
+                });
+            });
         });
     </script>
 </body>
