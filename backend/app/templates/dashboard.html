@@ -316,6 +316,16 @@
             <div class="job-card">
                 <h3>🔍 Module A : Discover</h3>
                 <p>Découvre de nouveaux produits depuis Keepa API</p>
+                <div class="filter-group" style="margin-bottom: 15px;">
+                    <label for="market-select" style="margin-bottom: 5px; color: #666; font-size: 0.9em;">Marketplace :</label>
+                    <select id="market-select" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; width: 100%; font-size: 0.95em;">
+                        {% for market in markets %}
+                            <option value="{{ market.code }}" {% if market.code == 'amazon_fr' %}selected{% endif %}>
+                                {{ market.label }} ({{ market.asin_count }} ASINs)
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
                 <button class="btn" onclick="runJob('discover')" id="btn-discover">
                     Lancer Discover
                 </button>
@@ -462,11 +472,22 @@
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeout);
                 
+                // Préparer le body de la requête
+                const body = {};
+                // Pour le job discover, ajouter le paramètre market
+                if (jobName === 'discover' || jobName === 'pipeline_abcde') {
+                    const marketSelect = document.getElementById('market-select');
+                    if (marketSelect) {
+                        body.market = marketSelect.value;
+                    }
+                }
+                
                 const response = await fetch(`/ui/run/${jobName}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
+                    body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
                     signal: controller.signal,
                 });
                 

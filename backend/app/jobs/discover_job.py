@@ -5,7 +5,7 @@ Récupère des produits depuis Keepa et les stocke en base.
 """
 import logging
 import json
-from typing import Dict, Set
+from typing import Dict, Set, Optional
 from uuid import uuid4
 from datetime import datetime
 
@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.product_candidate import ProductCandidate
 from app.services.keepa_client import KeepaClient
-from app.services.category_config import get_category_config_service, CategoryConfig
+from app.services.market_config import get_market_config_service, MarketConfig
 
 # Logger pour ce module
 logger = logging.getLogger(__name__)
@@ -23,132 +23,151 @@ logger = logging.getLogger(__name__)
 class DiscoverJob:
     """Job pour découvrir des produits candidats."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, market_code: Optional[str] = None):
         """
         Initialise le job.
 
         Args:
             db: Session SQLAlchemy pour la base de données.
+            market_code: Code du marché à traiter (ex: "amazon_fr"). 
+                         Si None, utilise "amazon_fr" par défaut.
         """
         self.db = db
         self.keepa_client = KeepaClient()
-        self.category_service = get_category_config_service()
+        self.market_service = get_market_config_service()
+        self.market_code = market_code or "amazon_fr"  # Par défaut: Amazon FR
         # Set pour tracker les ASINs déjà traités dans cette exécution
         self._processed_asins: Set[str] = set()
 
     def run(self) -> Dict[str, int]:
         """
-        Lance le job de découverte.
+        Lance le job de découverte pour le marché spécifié.
 
         Returns:
             Dictionnaire avec les statistiques :
             - created: nombre de produits créés
             - updated: nombre de produits mis à jour
             - total_processed: total traité
-            - categories_processed: nombre de catégories traitées
+            - markets_processed: nombre de marchés traités
             - errors: nombre d'erreurs rencontrées
         """
-        logger.info("=== Démarrage du job de découverte de produits ===")
+        logger.info(f"=== Démarrage du job de découverte de produits pour le marché: {self.market_code} ===")
 
-        categories = self.category_service.get_active_categories()
-        if not categories:
-            logger.warning("Aucune catégorie active configurée. Le job ne fera rien.")
+        # Récupérer la configuration du marché
+        market_config = self.market_service.get_market_by_code(self.market_code)
+        if not market_config:
+            logger.error(f"Marché '{self.market_code}' non trouvé dans la configuration.")
             return {
                 "created": 0,
                 "updated": 0,
                 "total_processed": 0,
-                "categories_processed": 0,
+                "markets_processed": 0,
+                "errors": 1,
+            }
+
+        if not market_config.active:
+            logger.warning(f"Marché '{self.market_code}' est désactivé. Le job ne fera rien.")
+            return {
+                "created": 0,
+                "updated": 0,
+                "total_processed": 0,
+                "markets_processed": 0,
                 "errors": 0,
             }
 
-        logger.info(f"Nombre de catégories actives à traiter: {len(categories)}")
+        logger.info(f"Traitement du marché: {market_config.label} (domain: {market_config.domain})")
 
         stats = {
             "created": 0,
             "updated": 0,
             "total_processed": 0,
-            "categories_processed": 0,
+            "markets_processed": 0,
             "errors": 0,
         }
 
         # Réinitialiser le tracker d'ASINs pour cette exécution
         self._processed_asins.clear()
 
-        for category_config in categories:
+        try:
+            market_stats = self._process_market(market_config)
+            stats["created"] += market_stats["created"]
+            stats["updated"] += market_stats["updated"]
+            stats["total_processed"] += market_stats["total_processed"]
+            stats["errors"] += market_stats.get("errors", 0)
+            stats["markets_processed"] = 1
+            
+            logger.info(
+                f"Marché {market_config.label}: "
+                f"{market_stats['created']} créés, "
+                f"{market_stats['updated']} mis à jour, "
+                f"{market_stats['total_processed']} traités"
+            )
+        except Exception as e:
+            logger.error(
+                f"Erreur lors du traitement du marché {market_config.label}: {str(e)}",
+                exc_info=True,
+            )
+            stats["errors"] += 1
             try:
-                logger.info(
-                    f"Traitement de la catégorie: {category_config.name} (ID: {category_config.id})"
-                )
-                category_stats = self._process_category(category_config)
-                stats["created"] += category_stats["created"]
-                stats["updated"] += category_stats["updated"]
-                stats["total_processed"] += category_stats["total_processed"]
-                stats["errors"] += category_stats.get("errors", 0)
-                stats["categories_processed"] += 1
-                logger.info(
-                    f"Catégorie {category_config.name}: "
-                    f"{category_stats['created']} créés, "
-                    f"{category_stats['updated']} mis à jour, "
-                    f"{category_stats['total_processed']} traités"
-                )
-                # Pas besoin de commit ici car on commit déjà après chaque produit
-            except Exception as e:
-                logger.error(
-                    f"Erreur lors du traitement de la catégorie {category_config.name}: {str(e)}",
-                    exc_info=True,
-                )
-                stats["errors"] += 1
-                try:
-                    self.db.rollback()
-                except Exception:
-                    pass
-                # Continue avec la catégorie suivante
+                self.db.rollback()
+            except Exception:
+                pass
 
-        # Pas besoin de commit final car on commit déjà après chaque produit
-
-        logger.info("=== Job de découverte terminé avec succès ===")
+        logger.info("=== Job de découverte terminé ===")
         logger.info(
             f"Statistiques globales: {stats['created']} créés, "
             f"{stats['updated']} mis à jour, "
             f"{stats['total_processed']} traités, "
-            f"{stats['categories_processed']} catégories, "
-            f"{stats['errors']} erreurs"
+            f"{stats['markets_processed']} marché(s), "
+            f"{stats['errors']} erreur(s)"
         )
 
         return stats
 
-    def _process_category(self, category_config: CategoryConfig) -> Dict[str, int]:
+    def _process_market(self, market_config: MarketConfig) -> Dict[str, int]:
         """
-        Traite une catégorie : récupère les produits et les stocke.
+        Traite un marché : récupère les produits depuis la liste d'ASINs et les stocke.
 
         Args:
-            category_config: Configuration de la catégorie.
+            market_config: Configuration du marché.
 
         Returns:
-            Statistiques pour cette catégorie.
+            Statistiques pour ce marché.
         """
         stats = {"created": 0, "updated": 0, "total_processed": 0, "errors": 0}
 
+        # Vérifier que la liste d'ASINs n'est pas vide
+        if not market_config.asins:
+            logger.warning(
+                f"Liste d'ASINs vide pour le marché {market_config.label}. Le marché sera ignoré."
+            )
+            return stats
+
+        logger.info(
+            f"Traitement de {len(market_config.asins)} ASINs pour le marché {market_config.label}"
+        )
+
         try:
-            # Récupérer 50-200 produits depuis Keepa pour cette catégorie
-            # Utiliser un nombre raisonnable (150) pour avoir assez de produits sans surcharger l'API
-            limit = min(200, max(50, 150))  # Entre 50 et 200, par défaut 150
-            products = self.keepa_client.get_top_products_by_category(category_config, limit=limit)
+            # Récupérer les produits depuis Keepa en utilisant la liste d'ASINs
+            products = self.keepa_client.get_products_by_asins(
+                domain=market_config.domain,
+                asin_list=market_config.asins
+            )
         except Exception as e:
             logger.error(
-                f"Erreur KeepaClient pour la catégorie {category_config.name}: {str(e)}",
+                f"Erreur KeepaClient pour le marché {market_config.label}: {str(e)}",
                 exc_info=True,
             )
-            # Retourner des stats vides mais ne pas faire planter le job
+            stats["errors"] += 1
             return stats
 
         if not products:
             logger.warning(
-                f"Aucun produit retourné pour la catégorie {category_config.name}"
+                f"Aucun produit retourné par Keepa pour le marché {market_config.label}"
             )
             return stats
 
-        logger.debug(f"Récupération de {len(products)} produits pour {category_config.name}")
+        logger.info(f"Récupération de {len(products)} produits enrichis pour {market_config.label}")
 
         for keepa_product in products:
             try:
@@ -160,7 +179,12 @@ class DiscoverJob:
                     continue
 
                 # Upsert explicite : vérifier puis insérer ou mettre à jour
-                is_new = self._upsert_product(keepa_product, category_config.name)
+                is_new = self._upsert_product(
+                    keepa_product,
+                    market_config.label,
+                    self.market_code,
+                    domain=market_config.domain,
+                )
                 
                 if is_new:
                     stats["created"] += 1
@@ -187,21 +211,8 @@ class DiscoverJob:
                             .first()
                         )
                         if existing:
-                            existing.title = keepa_product.title
-                            existing.category = category_config.name
-                            existing.avg_price = keepa_product.avg_price
-                            existing.bsr = keepa_product.bsr
-                            existing.estimated_sales_per_day = keepa_product.estimated_sales_per_day
-                            existing.reviews_count = keepa_product.reviews_count
-                            existing.rating = keepa_product.rating
-                            existing.raw_keepa_data = keepa_product.raw_data
-                            existing.source_marketplace = "amazon_fr"
-                            if existing.status not in ["scored", "selected", "launched"]:
-                                existing.status = "new"
-                            self.db.commit()
-                            stats["updated"] += 1
-                            self._processed_asins.add(asin)
-                            stats["total_processed"] += 1
+                            # Mise à jour des champs (sera gérée par _upsert_product lors du retry)
+                            pass
                     except Exception as retry_e:
                         logger.error(
                             f"Erreur lors de la mise à jour du produit {keepa_product.asin}: {str(retry_e)}",
@@ -230,7 +241,13 @@ class DiscoverJob:
 
         return stats
 
-    def _upsert_product(self, keepa_product, category_name: str) -> bool:
+    def _upsert_product(
+        self,
+        keepa_product,
+        category_name: str,
+        marketplace_code: str,
+        domain: Optional[int] = None,
+    ) -> bool:
         """
         Upsert un produit en utilisant l'ORM SQLAlchemy.
         
@@ -258,6 +275,11 @@ class DiscoverJob:
         # Préparer les données brutes
         raw_data_dict = keepa_product.raw_data if isinstance(keepa_product.raw_data, dict) else json.loads(keepa_product.raw_data) if isinstance(keepa_product.raw_data, str) else {}
         
+        # Ajouter le domaine dans raw_data si ce n'est pas déjà fait
+        if isinstance(raw_data_dict, dict):
+            if "domain" not in raw_data_dict and domain is not None:
+                raw_data_dict["domain"] = domain
+        
         if existing:
             # Mise à jour du produit existant
             existing.title = keepa_product.title
@@ -268,7 +290,7 @@ class DiscoverJob:
             existing.reviews_count = keepa_product.reviews_count
             existing.rating = float(keepa_product.rating) if keepa_product.rating else None
             existing.raw_keepa_data = raw_data_dict
-            existing.source_marketplace = "amazon_fr"
+            existing.source_marketplace = marketplace_code
             # Préserver le status si déjà traité
             if existing.status not in ["scored", "selected", "launched"]:
                 existing.status = "new"
@@ -288,7 +310,7 @@ class DiscoverJob:
                 asin=keepa_product.asin,
                 title=keepa_product.title,
                 category=category_name,
-                source_marketplace="amazon_fr",
+                source_marketplace=marketplace_code,
                 avg_price=float(keepa_product.avg_price) if keepa_product.avg_price else None,
                 bsr=keepa_product.bsr,
                 estimated_sales_per_day=float(keepa_product.estimated_sales_per_day) if keepa_product.estimated_sales_per_day else None,
@@ -310,7 +332,7 @@ class DiscoverJob:
                     self.db.rollback()
                     logger.warning(f"Produit {keepa_product.asin} créé entre-temps, tentative de mise à jour")
                     # Réessayer avec une mise à jour
-                    return self._upsert_product(keepa_product, category_name)
+                    return self._upsert_product(keepa_product, category_name, marketplace_code)
                 else:
                     self.db.rollback()
                     logger.error(f"Erreur d'intégrité lors de la création du produit {keepa_product.asin}: {str(e)}", exc_info=True)

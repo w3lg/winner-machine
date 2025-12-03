@@ -54,6 +54,172 @@ class KeepaClient:
         self.base_url = "https://api.keepa.com"
         self.timeout = 30.0  # Timeout en secondes pour les requêtes HTTP
 
+    def get_products_by_asins(
+        self, domain: int, asin_list: List[str]
+    ) -> List[KeepaProduct]:
+        """
+        Récupère les produits depuis l'API Keepa en utilisant une liste d'ASINs.
+
+        Args:
+            domain: Domain Keepa (1=Amazon FR, 3=Amazon DE, 9=Amazon ES, etc.).
+            asin_list: Liste d'ASINs à enrichir.
+
+        Returns:
+            Liste des produits normalisés.
+
+        Note:
+            Si KEEPA_API_KEY n'est pas définie, retourne une liste vide.
+            Si l'API Keepa échoue, retourne une liste vide (ne plantera pas le job).
+        """
+        if not self.api_key:
+            logger.warning(
+                "KEEPA_API_KEY non définie, impossible de récupérer les produits pour le domaine %s",
+                domain,
+            )
+            return []
+
+        if not asin_list:
+            logger.warning("Liste d'ASINs vide, aucun produit à récupérer")
+            return []
+
+        try:
+            logger.info(
+                "Récupération de %s produits depuis Keepa pour le domaine %s",
+                len(asin_list),
+                domain,
+            )
+
+            # Keepa permet jusqu'à 100 ASINs par requête
+            batch_size = 100
+            all_products = []
+
+            for i in range(0, len(asin_list), batch_size):
+                batch_asins = asin_list[i:i + batch_size]
+                asin_string = ",".join(batch_asins)
+
+                params = {
+                    "key": self.api_key,
+                    "domain": domain,
+                    "asin": asin_string,
+                    "stats": 180,  # Stats sur 180 jours
+                }
+
+                try:
+                    with httpx.Client(timeout=self.timeout) as client:
+                        response = client.get(
+                            f"{self.base_url}/product",
+                            params=params,
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+
+                    logger.debug(
+                        "Réponse Keepa API pour batch %s-%s: %s",
+                        i,
+                        min(i + batch_size, len(asin_list)),
+                        list(data.keys()) if isinstance(data, dict) else type(data),
+                    )
+
+                    # Vérifier la structure de la réponse Keepa
+                    products = []
+                    if "products" in data:
+                        products = data["products"]
+                    elif isinstance(data, list):
+                        products = data
+                    else:
+                        logger.warning(
+                            "Structure de réponse Keepa inattendue pour le batch %s-%s: %s",
+                            i,
+                            min(i + batch_size, len(asin_list)),
+                            list(data.keys()) if isinstance(data, dict) else type(data),
+                        )
+                        continue
+
+                    if products:
+                        all_products.extend(products)
+                        logger.info(
+                            "Batch %s-%s: %s produits récupérés",
+                            i,
+                            min(i + batch_size, len(asin_list)),
+                            len(products),
+                        )
+
+                except httpx.HTTPStatusError as e:
+                    error_msg = ""
+                    try:
+                        error_body = e.response.json()
+                        error_msg = f" - {error_body}"
+                    except:
+                        error_msg = f" - {e.response.text[:200]}"
+                    
+                    logger.error(
+                        "Erreur HTTP %s lors de l'appel Keepa pour le batch %s-%s: %s%s",
+                        e.response.status_code,
+                        i,
+                        min(i + batch_size, len(asin_list)),
+                        str(e),
+                        error_msg,
+                    )
+                    # Continue avec le batch suivant
+                    continue
+                except Exception as e:
+                    logger.error(
+                        "Erreur lors de l'appel Keepa pour le batch %s-%s: %s",
+                        i,
+                        min(i + batch_size, len(asin_list)),
+                        str(e),
+                        exc_info=True,
+                    )
+                    # Continue avec le batch suivant
+                    continue
+
+            if not all_products:
+                logger.warning(
+                    "Aucun produit retourné par Keepa pour le domaine %s",
+                    domain,
+                )
+                return []
+
+            logger.info(
+                "Total de %s produits bruts récupérés pour le domaine %s",
+                len(all_products),
+                domain,
+            )
+
+            # Normaliser les produits
+            # Créer une CategoryConfig temporaire pour la normalisation
+            # (on utilisera juste le nom du domaine pour la catégorie)
+            from app.services.category_config import CategoryConfig
+            
+            temp_category = CategoryConfig(
+                id=0,
+                name=f"Domain_{domain}",
+                marketplace="amazon",
+                bsr_max=999999,
+                price_min=0,
+                price_max=999999,
+            )
+            
+            normalized = self._normalize_products(all_products, temp_category)
+
+            logger.info(
+                "%s produits normalisés pour le domaine %s (sur %s produits bruts)",
+                len(normalized),
+                domain,
+                len(all_products),
+            )
+
+            return normalized
+
+        except Exception as e:
+            logger.error(
+                "Erreur inattendue lors de la récupération des produits par ASINs pour le domaine %s: %s",
+                domain,
+                str(e),
+                exc_info=True,
+            )
+            return []
+
     def get_top_products_by_category(
         self, category_config: CategoryConfig, limit: int = 200
     ) -> List[KeepaProduct]:
@@ -550,7 +716,8 @@ class KeepaClient:
                 raw_data_with_source = dict(product) if isinstance(product, dict) else product
                 if isinstance(raw_data_with_source, dict):
                     raw_data_with_source["source"] = "keepa_api"
-                    raw_data_with_source["domain"] = 1  # Amazon FR
+                    # Le domaine sera ajouté lors de l'appel, on le met à None pour l'instant
+                    # Il sera défini dans DiscoverJob lors de l'upsert
 
                 # Créer le produit normalisé
                 normalized_product = KeepaProduct(

@@ -1,0 +1,31 @@
+# Configuration des marchés Amazon et leurs listes d'ASINs
+# Utilisé par le Module A : Discoverer
+# Domain Keepa: 1 = Amazon FR, 3 = Amazon DE, 9 = Amazon ES
+
+markets:
+  amazon_fr:
+    domain: 1
+    label: "France"
+    active: true
+    asins:
+      # ASINs de test - à remplacer par de vrais ASINs plus tard
+      - B08XYZ1234
+      - B08ABC5678
+      - B09DEF9012
+      # Exemples d'ASINs Amazon FR réels (pour test)
+      - B08NCR9Y9T  # Casque Bluetooth
+      - B07XYZ1234  # Exemple produit
+      - B08KX5Y3ZP  # Exemple produit
+
+  amazon_de:
+    domain: 3
+    label: "Allemagne"
+    active: false  # Désactivé pour l'instant
+    asins: []
+
+  amazon_es:
+    domain: 9
+    label: "Espagne"
+    active: false  # Désactivé pour l'instant
+    asins: []
+

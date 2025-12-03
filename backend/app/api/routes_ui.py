@@ -6,17 +6,20 @@ Permet de lancer les jobs via une interface web simple.
 import logging
 from typing import Dict, Any
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Body
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from pathlib import Path
+from typing import Optional
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.jobs.discover_job import DiscoverJob
 from app.jobs.sourcing_job import SourcingJob
 from app.jobs.scoring_job import ScoringJob
 from app.jobs.listing_job import ListingJob
+from app.services.market_config import get_market_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +37,40 @@ async def dashboard(request: Request):
 
     Interface web simple avec des boutons pour déclencher les jobs.
     """
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    # Charger les marchés disponibles pour le sélecteur
+    market_service = get_market_config_service()
+    markets = market_service.get_all_markets()
+    
+    markets_list = [
+        {
+            "code": code,
+            "label": config.label,
+            "active": config.active,
+            "asin_count": len(config.asins),
+        }
+        for code, config in markets.items()
+    ]
+    
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "markets": markets_list,
+        },
+    )
+
+
+class RunJobRequest(BaseModel):
+    """Requête pour lancer un job."""
+    market: Optional[str] = None  # Code du marché pour le job discover
 
 
 @router.post("/ui/run/{job_name}")
-async def run_job(job_name: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def run_job(
+    job_name: str,
+    request: Optional[RunJobRequest] = Body(None),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
     """
     Lance un job par son nom.
 
@@ -71,7 +103,9 @@ async def run_job(job_name: str, db: Session = Depends(get_db)) -> Dict[str, Any
             for step_name in jobs_order:
                 logger.info(f"Exécution du job: {step_name}")
                 try:
-                    result = await _run_single_job(step_name, db)
+                    # Pour le job discover, passer le paramètre market
+                    market_code = request.market if request and step_name == "discover" else None
+                    result = await _run_single_job(step_name, db, market_code=market_code)
                     results.append({
                         "step": step_name,
                         "result": result,
@@ -105,7 +139,8 @@ async def run_job(job_name: str, db: Session = Depends(get_db)) -> Dict[str, Any
         else:
             # Job simple
             logger.info(f"Exécution du job: {job_name}")
-            result = await _run_single_job(job_name, db)
+            market_code = request.market if request and job_name == "discover" else None
+            result = await _run_single_job(job_name, db, market_code=market_code)
             return result
 
     except Exception as e:
@@ -117,20 +152,25 @@ async def run_job(job_name: str, db: Session = Depends(get_db)) -> Dict[str, Any
         }
 
 
-async def _run_single_job(job_name: str, db: Session) -> Dict[str, Any]:
+async def _run_single_job(
+    job_name: str,
+    db: Session,
+    market_code: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Exécute un job unique en appelant directement la classe Job.
     
     Args:
         job_name: Nom du job à exécuter.
         db: Session de base de données.
+        market_code: Code du marché (pour le job discover uniquement).
     
     Returns:
         Résultat du job sous forme de dictionnaire.
     """
     try:
         if job_name == "discover":
-            job = DiscoverJob(db)
+            job = DiscoverJob(db, market_code=market_code or "amazon_fr")
             stats = job.run()
             return {
                 "success": True,

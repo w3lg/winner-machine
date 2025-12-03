@@ -5,9 +5,10 @@ Endpoints pour lancer la découverte de produits.
 """
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from app.core.database import get_db
 from app.jobs.discover_job import DiscoverJob
@@ -23,7 +24,7 @@ class DiscoverStats(BaseModel):
     created: int = Field(description="Nombre de produits créés")
     updated: int = Field(description="Nombre de produits mis à jour")
     total_processed: int = Field(description="Total de produits traités")
-    categories_processed: int = Field(description="Nombre de catégories traitées")
+    markets_processed: int = Field(description="Nombre de marchés traités")
     errors: int = Field(description="Nombre d'erreurs rencontrées")
 
 
@@ -43,9 +44,14 @@ class DiscoverResponse(BaseModel):
     Lance le job de découverte de produits depuis l'API Keepa.
 
     **Fonctionnalités :**
-    - Récupère les produits depuis Keepa pour toutes les catégories configurées
+    - Récupère les produits depuis Keepa pour un marché spécifié (par défaut: amazon_fr)
+    - Utilise la liste d'ASINs configurée pour le marché dans markets_asins.yml
     - Stocke les produits en base de données (création ou mise à jour selon l'ASIN)
-    - Gère les erreurs par catégorie sans interrompre le processus global
+    - Gère les erreurs sans interrompre le processus global
+
+    **Paramètres :**
+    - `market` (optionnel) : Code du marché à traiter (ex: "amazon_fr", "amazon_de", "amazon_es")
+      - Par défaut : "amazon_fr"
 
     **Fréquence recommandée :**
     - En production : 1 fois par jour (ex: 03:00) via n8n cron
@@ -56,30 +62,36 @@ class DiscoverResponse(BaseModel):
     - Produits existants : mise à jour des métriques sans changer le statut s'il a déjà été traité
 
     **Retourne :**
-    - Statistiques détaillées (créés, mis à jour, traités, catégories, erreurs)
+    - Statistiques détaillées (créés, mis à jour, traités, marchés, erreurs)
     - Message de succès ou d'erreur
     """,
 )
-async def run_discover_job(db: Session = Depends(get_db)) -> DiscoverResponse:
+async def run_discover_job(
+    market: Optional[str] = Query(
+        default="amazon_fr",
+        description="Code du marché à traiter (ex: amazon_fr, amazon_de, amazon_es)",
+    ),
+    db: Session = Depends(get_db),
+) -> DiscoverResponse:
     """
-    Lance le job de découverte de produits.
+    Lance le job de découverte de produits pour un marché spécifié.
 
-    Récupère les produits depuis Keepa pour toutes les catégories configurées
-    et les stocke en base de données (création ou mise à jour).
+    Récupère les produits depuis Keepa en utilisant la liste d'ASINs configurée
+    pour le marché et les stocke en base de données (création ou mise à jour).
     """
-    logger.info("Démarrage du job de découverte via l'endpoint API")
+    logger.info(f"Démarrage du job de découverte via l'endpoint API pour le marché: {market}")
     try:
-        job = DiscoverJob(db)
+        job = DiscoverJob(db, market_code=market)
         stats = job.run()
 
         response = DiscoverResponse(
             success=True,
-            message="Job de découverte terminé avec succès",
+            message=f"Job de découverte terminé avec succès pour le marché {market}",
             stats=DiscoverStats(
                 created=stats.get("created", 0),
                 updated=stats.get("updated", 0),
                 total_processed=stats.get("total_processed", 0),
-                categories_processed=stats.get("categories_processed", 0),
+                markets_processed=stats.get("markets_processed", 0),
                 errors=stats.get("errors", 0),
             ),
         )
