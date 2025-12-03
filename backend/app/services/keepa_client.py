@@ -89,13 +89,14 @@ class KeepaClient:
                 domain,
             )
 
-            # Keepa permet jusqu'à 100 ASINs par requête
-            batch_size = 100
+            # Appeler l'API Keepa un ASIN à la fois pour éviter les problèmes
+            # (l'API semble rejeter les appels avec plusieurs ASINs)
+            batch_size = 1
             all_products = []
 
             for i in range(0, len(asin_list), batch_size):
                 batch_asins = asin_list[i:i + batch_size]
-                asin_string = ",".join(batch_asins)
+                asin_string = batch_asins[0]  # Un seul ASIN à la fois
 
                 params = {
                     "key": self.api_key,
