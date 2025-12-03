@@ -690,51 +690,66 @@ class KeepaClient:
                 # Extraire les données depuis les stats Keepa
                 stats = product.get("stats", {})
 
-                # Prix moyen (depuis les stats ou CSV Keepa)
-                # Keepa stocke les prix dans un array CSV encodé, on utilise les stats si disponibles
+                # NOUVELLE LOGIQUE D'EXTRACTION DU PRIX AMAZON
+                # Priorité 1 → 4 : chercher le meilleur prix disponible
                 avg_price = None
                 
-                # Essayer depuis stats.current
-                if isinstance(stats, dict):
-                    current_price = stats.get("current", None)
-                    if current_price:
-                        avg_price = Decimal(str(current_price))
-                    else:
-                        # Essayer avg90 ou avg180
-                        avg_price = stats.get("avg90") or stats.get("avg180")
-                        if avg_price:
-                            avg_price = Decimal(str(avg_price))
+                # PRIORITÉ 1 : buyBoxSellerId == null → Amazon retail, utiliser buyBoxPrice
+                buy_box_seller_id = product.get("buyBoxSellerIdHistory")
+                if buy_box_seller_id is None or (isinstance(buy_box_seller_id, list) and len(buy_box_seller_id) == 0):
+                    # C'est Amazon retail, récupérer le prix depuis stats ou buyBoxPrice
+                    buy_box_price = stats.get("buyBoxPrice")
+                    if buy_box_price and buy_box_price > 0:
+                        # Keepa stocke les prix en centimes
+                        avg_price = Decimal(str(buy_box_price)) / Decimal("100")
+                        logger.debug(f"Prix Amazon retail (buyBoxPrice) pour {asin}: {avg_price} EUR ({buy_box_price} centimes)")
 
-                # Si pas de prix dans stats, décoder depuis le CSV array
-                # Keepa stocke les prix dans csv[0] au format [timestamp, price_centimes, ...]
+                # PRIORITÉ 2 : Utiliser les moyennes stats (avg30, avg90, avg180)
+                if avg_price is None and isinstance(stats, dict):
+                    # Essayer dans l'ordre : avg30 → avg90 → avg180
+                    for stat_key in ["avg30", "avg90", "avg180"]:
+                        stat_price = stats.get(stat_key)
+                        if stat_price and stat_price > 0:
+                            # Keepa stocke les prix en centimes
+                            avg_price = Decimal(str(stat_price)) / Decimal("100")
+                            logger.debug(f"Prix depuis stats.{stat_key} pour {asin}: {avg_price} EUR ({stat_price} centimes)")
+                            break
+
+                # PRIORITÉ 3 : Utiliser currentPrices (offres live)
                 if avg_price is None:
-                    csv_arrays = product.get("csv", [])
-                    if csv_arrays and len(csv_arrays) > 0:
-                        amazon_price_array = csv_arrays[0]  # Array 0 = prix Amazon
-                        if amazon_price_array and len(amazon_price_array) >= 2:
-                            # Format: [timestamp1, price1, timestamp2, price2, ...]
-                            # Les prix sont en centimes, chercher le dernier prix valide (> 0)
-                            for i in range(len(amazon_price_array) - 1, 1, -2):
-                                if i > 0 and i < len(amazon_price_array):
-                                    price_cents = amazon_price_array[i]
-                                    if price_cents and price_cents > 0:  # -1 = pas de prix
-                                        # Convertir centimes en EUR
-                                        avg_price = Decimal(str(price_cents)) / Decimal("100")
-                                        logger.debug(
-                                            f"Prix extrait depuis CSV array pour {asin}: {avg_price} EUR ({price_cents} centimes)"
-                                        )
+                    current_prices = product.get("currentPrices")
+                    if current_prices:
+                        # currentPrices peut être une liste ou un dict
+                        if isinstance(current_prices, list) and len(current_prices) > 0:
+                            # Prendre le premier prix valide
+                            for price_item in current_prices:
+                                if isinstance(price_item, dict):
+                                    price_val = price_item.get("price") or price_item.get("value")
+                                    if price_val and price_val > 0:
+                                        # Convertir centimes en EUR si nécessaire
+                                        if price_val > 1000:  # Probablement en centimes
+                                            avg_price = Decimal(str(price_val)) / Decimal("100")
+                                        else:
+                                            avg_price = Decimal(str(price_val))
+                                        logger.debug(f"Prix depuis currentPrices pour {asin}: {avg_price} EUR")
                                         break
+                        elif isinstance(current_prices, dict):
+                            # Chercher un prix valide dans le dict
+                            for key, price_val in current_prices.items():
+                                if isinstance(price_val, (int, float)) and price_val > 0:
+                                    # Convertir centimes en EUR si nécessaire
+                                    if price_val > 1000:  # Probablement en centimes
+                                        avg_price = Decimal(str(price_val)) / Decimal("100")
+                                    else:
+                                        avg_price = Decimal(str(price_val))
+                                    logger.debug(f"Prix depuis currentPrices[{key}] pour {asin}: {avg_price} EUR")
+                                    break
 
-                # Si toujours pas de prix, essayer directement dans product
+                # Si aucune valeur trouvée → avg_price = None
                 if avg_price is None:
-                    if "price" in product:
-                        price_obj = product["price"]
-                        if isinstance(price_obj, dict):
-                            avg_price = price_obj.get("amazon") or price_obj.get("current")
-                        elif isinstance(price_obj, (int, float)):
-                            avg_price = price_obj
-                
-                # Convertir en Decimal si nécessaire
+                    logger.warning(f"Aucun prix trouvé pour {asin} dans buyBoxPrice, stats (avg30/90/180), ou currentPrices")
+
+                # Convertir en Decimal si nécessaire et valider
                 if avg_price is not None:
                     try:
                         avg_price = Decimal(str(avg_price))
@@ -754,7 +769,8 @@ class KeepaClient:
                                 asin,
                             )
                             continue
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Erreur conversion prix pour {asin}: {str(e)}")
                         avg_price = None
 
                 # BSR (Best Seller Rank) depuis stats
