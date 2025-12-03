@@ -670,14 +670,23 @@ class KeepaClient:
 
         for product in products:
             try:
-                asin = product.get("asin", "").strip()
+                # Extraire ASIN (peut être None, donc gérer avec soin)
+                asin_raw = product.get("asin")
+                if asin_raw is None:
+                    logger.warning("ASIN manquant, produit ignoré: %s", product.get("asin", "N/A"))
+                    continue
+                
+                asin = str(asin_raw).strip()
                 if not asin or len(asin) != 10:
-                    logger.warning("ASIN invalide ou manquant, produit ignoré: %s", product)
+                    logger.warning("ASIN invalide (longueur: %s), produit ignoré: %s", len(asin) if asin else 0, asin)
                     continue
 
-                title = (product.get("title") or "").strip()
-                if not title:
-                    title = (product.get("productName") or "").strip() or "Sans titre"
+                # Extraire titre (peut être None)
+                title_raw = product.get("title") or product.get("productName")
+                if title_raw is None:
+                    title = "Sans titre"
+                else:
+                    title = str(title_raw).strip() or "Sans titre"
 
                 # Extraire les données depuis les stats Keepa
                 stats = product.get("stats", {})
