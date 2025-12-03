@@ -39,6 +39,7 @@ class WinnerProductOut(BaseModel):
     estimated_sales_per_day: Decimal | None = Field(description="Ventes estimées par jour")
     global_score: Decimal | None = Field(description="Score global")
     decision: str = Field(description="Décision: A_launch, B_review, C_drop")
+    is_real_asin: bool = Field(description="True si l'ASIN est réel (pas mock), False si produit mocké")
 
     class Config:
         from_attributes = True
@@ -99,6 +100,7 @@ async def get_winners(
                 ProductCandidate.asin,
                 ProductCandidate.title,
                 ProductCandidate.category,
+                ProductCandidate.raw_keepa_data,
                 SourcingOption.supplier_name,
                 SourcingOption.unit_cost.label("purchase_price"),
                 ProductScore.selling_price_target,
@@ -166,6 +168,13 @@ async def get_winners(
         # Convertir en modèles Pydantic
         items = []
         for row in products_map.values():
+            # Déterminer si l'ASIN est réel (pas un produit mocké)
+            # Un produit est mocké si raw_keepa_data contient "source": "mock"
+            is_real_asin = True
+            if row.raw_keepa_data and isinstance(row.raw_keepa_data, dict):
+                if row.raw_keepa_data.get("source") == "mock":
+                    is_real_asin = False
+            
             items.append(
                 WinnerProductOut(
                     product_id=row.product_id,
@@ -181,6 +190,7 @@ async def get_winners(
                     estimated_sales_per_day=row.estimated_sales_per_day,
                     global_score=row.global_score,
                     decision=row.decision,
+                    is_real_asin=is_real_asin,
                 )
             )
         

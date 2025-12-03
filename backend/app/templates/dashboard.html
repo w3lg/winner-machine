@@ -625,12 +625,17 @@
             
             items.forEach(item => {
                 const row = document.createElement('tr');
-                // Créer le lien Amazon FR pour l'ASIN
-                const asinLink = item.asin 
-                    ? `<a href="https://www.amazon.fr/dp/${item.asin}" target="_blank" rel="noopener noreferrer" title="Voir le produit sur Amazon FR">${item.asin}</a>`
-                    : '-';
+                // Créer le lien Amazon FR pour l'ASIN seulement si c'est un vrai ASIN (pas mocké)
+                let asinDisplay = item.asin || '-';
+                if (item.asin && item.is_real_asin !== false) {
+                    // ASIN réel : rendre cliquable
+                    asinDisplay = `<a href="https://www.amazon.fr/dp/${item.asin}" target="_blank" rel="noopener noreferrer" title="Voir le produit sur Amazon FR">${item.asin}</a>`;
+                } else if (item.asin) {
+                    // ASIN mocké : afficher avec un indicateur
+                    asinDisplay = `<span title="ASIN généré (produit de test) - Non disponible sur Amazon">${item.asin}</span>`;
+                }
                 row.innerHTML = `
-                    <td>${asinLink}</td>
+                    <td>${asinDisplay}</td>
                     <td>${item.title || '-'}</td>
                     <td>${item.category || '-'}</td>
                     <td>${item.supplier_name || '-'}</td>
