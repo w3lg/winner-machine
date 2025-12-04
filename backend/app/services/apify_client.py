@@ -146,14 +146,15 @@ class ApifyClient:
 
         Args:
             domain: Domaine Amazon (FR, DE, ES, etc.)
-            limit: Nombre maximum d'ASINs à récupérer
-            category: Catégorie spécifique (optionnel)
+            limit: Nombre maximum d'ASINs à récupérer (100-500 recommandé)
+            category: URL de catégorie spécifique (optionnel)
 
         Returns:
             Liste d'ASINs uniques
 
         Note:
-            Utilise l'actor "junglee/amazon-bestsellers" par défaut.
+            Utilise l'actor "amazon-scraper/amazon-bestsellers-scraper".
+            Utilise l'endpoint run-sync-get-dataset-items pour une récupération directe.
             Si Apify renvoie une erreur, retourne une liste vide sans planter.
         """
         if not self.api_key:
@@ -163,34 +164,61 @@ class ApifyClient:
             return []
 
         # Actor Apify pour les best sellers Amazon
-        # Documentation: https://apify.com/junglee/amazon-bestsellers
-        actor_id = "junglee/amazon-bestsellers"
-
-        # Préparer les données d'entrée
+        # Documentation: https://apify.com/amazon-scraper/amazon-bestsellers-scraper
+        actor_id = "amazon-scraper/amazon-bestsellers-scraper"
+        
+        # Construire l'URL de best sellers selon le domaine
+        domain_lower = domain.lower()
+        bestsellers_url = category or f"https://www.amazon.{domain_lower}/gp/bestsellers"
+        
+        # Préparer les données d'entrée pour l'actor
+        # L'actor attend une liste d'URLs de catégories Amazon
         input_data = {
-            "country": domain,
-            "maxItems": limit,
+            "categoryUrls": [bestsellers_url],
+            "maxItems": min(limit, 500),  # Limiter à 500 max par run
         }
-
-        if category:
-            input_data["category"] = category
 
         try:
             logger.info(
-                f"Récupération de {limit} best sellers Amazon {domain} via Apify..."
+                f"Récupération de {limit} best sellers Amazon {domain} via Apify (actor: {actor_id})..."
             )
+            logger.info(f"URL best sellers: {bestsellers_url}")
 
-            # Lancer l'actor et récupérer les résultats
-            result = self.run_actor_sync(actor_id, input_data, wait_for_finish=True)
+            # Utiliser l'endpoint run-sync-get-dataset-items pour lancer l'actor et récupérer directement les items
+            # Format: /acts/{actorId}/run-sync-get-dataset-items
+            # L'actor ID avec slash doit être remplacé par un tilde dans l'URL
+            actor_id_url = actor_id.replace("/", "~")
+            endpoint_url = f"{self.base_url}/acts/{actor_id_url}/run-sync-get-dataset-items"
+            
+            # L'endpoint attend les paramètres en query string (token) et input dans le body POST
+            params = {"token": self.api_key}
+            
+            logger.info(f"Appel endpoint Apify: {endpoint_url}")
+            result = self._make_request("POST", endpoint_url, params=params, json_data=input_data)
 
             if not result:
-                logger.warning("Aucun résultat retourné par Apify")
+                logger.error("Aucun résultat retourné par l'endpoint Apify")
                 return []
+
+            # Le résultat peut être une liste directe ou un objet avec "items"
+            items = []
+            if isinstance(result, list):
+                items = result
+            elif isinstance(result, dict):
+                items = result.get("items", result.get("data", []))
+            
+            if not items:
+                logger.warning("Aucun item trouvé dans la réponse Apify")
+                return []
+
+            logger.info(f"Réception de {len(items)} items bruts depuis Apify")
+
+            # Stocker un exemple d'item brut pour debug (premier item)
+            if items:
+                logger.debug(f"Exemple d'item brut Apify: {items[0]}")
 
             # Extraire les ASINs depuis les items
             asins = []
-            items = result if isinstance(result, list) else []
-
             for item in items:
                 # Chercher l'ASIN dans différents champs possibles
                 asin = (
@@ -198,10 +226,13 @@ class ApifyClient:
                     or item.get("ASIN") 
                     or item.get("productAsin")
                     or item.get("asinCode")
+                    or item.get("asinCode")
                 )
+                
                 if asin:
                     # Normaliser l'ASIN (enlever les espaces, mettre en majuscule)
                     asin = str(asin).strip().upper()
+                    # Vérifier que l'ASIN a 10 caractères (format Amazon standard)
                     if len(asin) == 10:
                         asins.append(asin)
 
@@ -209,7 +240,7 @@ class ApifyClient:
             unique_asins = list(dict.fromkeys(asins))[:limit]
 
             logger.info(
-                f"Récupération réussie: {len(unique_asins)} ASINs uniques récupérés"
+                f"Récupération réussie: {len(unique_asins)} ASINs uniques récupérés sur {len(items)} items"
             )
 
             return unique_asins
