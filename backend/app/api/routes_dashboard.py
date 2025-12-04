@@ -36,7 +36,11 @@ class WinnerProductOut(BaseModel):
     amazon_fees_estimate: Decimal | None = Field(description="Frais Amazon estimés (EUR)")
     margin_absolute: Decimal | None = Field(description="Marge absolue (EUR)")
     margin_percent: Decimal | None = Field(description="Marge en pourcentage")
+    gross_profit: Decimal | None = Field(description="Marge brute (EUR)")
+    gross_margin_percent: Decimal | None = Field(description="Marge brute en pourcentage")
+    net_profit_estimated: Decimal | None = Field(description="Profit net estimé après IS/CFE (EUR)")
     estimated_sales_per_day: Decimal | None = Field(description="Ventes estimées par jour")
+    approx_profit_per_day: Decimal | None = Field(description="Profit/jour approximatif (EUR) = net_profit_estimated * estimated_sales_per_day")
     global_score: Decimal | None = Field(description="Score global")
     decision: str = Field(description="Décision: A_launch, B_review, C_drop")
     is_real_asin: bool = Field(description="True si l'ASIN est réel (pas mock), False si produit mocké")
@@ -72,7 +76,7 @@ class WinnersResponse(BaseModel):
     """,
 )
 async def get_winners(
-    decision: Optional[str] = Query(None, description="Décision à filtrer (None = tous)"),
+    decision: Optional[str] = Query(None, description="Décision à filtrer (None, 'Tous' ou 'all' = tous)"),
     min_margin_percent: Optional[float] = Query(None, description="Marge minimum en %"),
     min_global_score: Optional[float] = Query(None, description="Score global minimum"),
     min_sales_per_day: Optional[float] = Query(None, description="Ventes par jour minimum"),
@@ -107,7 +111,15 @@ async def get_winners(
                 ProductScore.amazon_fees_estimate,
                 ProductScore.margin_absolute,
                 ProductScore.margin_percent,
+                ProductScore.gross_profit,
+                ProductScore.gross_margin_percent,
+                ProductScore.net_profit_estimated,
                 ProductScore.estimated_sales_per_day,
+                # Calculer approx_profit_per_day = net_profit_estimated * estimated_sales_per_day
+                func.coalesce(
+                    ProductScore.net_profit_estimated * ProductScore.estimated_sales_per_day,
+                    Decimal("0")
+                ).label("approx_profit_per_day"),
                 ProductScore.global_score,
                 ProductScore.decision,
             )
@@ -141,12 +153,6 @@ async def get_winners(
             )
 
         # Trier par global_score décroissant, puis par margin_percent décroissant
-        query = query.order_by(
-            desc(ProductScore.global_score),
-            desc(ProductScore.margin_percent),
-        )
-
-        # Trier par global_score décroissant, puis par margin_percent décroissant
         # Cela permet de récupérer les meilleurs scores en premier
         query = query.order_by(
             desc(ProductScore.global_score),
@@ -175,6 +181,14 @@ async def get_winners(
                 if row.raw_keepa_data.get("source") == "mock":
                     is_real_asin = False
             
+            # Calculer approx_profit_per_day si les valeurs sont disponibles
+            approx_profit_per_day = None
+            if hasattr(row, "approx_profit_per_day"):
+                approx_profit_per_day = row.approx_profit_per_day
+            elif hasattr(row, "net_profit_estimated") and hasattr(row, "estimated_sales_per_day"):
+                if row.net_profit_estimated and row.estimated_sales_per_day:
+                    approx_profit_per_day = row.net_profit_estimated * row.estimated_sales_per_day
+            
             items.append(
                 WinnerProductOut(
                     product_id=row.product_id,
@@ -187,7 +201,11 @@ async def get_winners(
                     amazon_fees_estimate=row.amazon_fees_estimate,
                     margin_absolute=row.margin_absolute,
                     margin_percent=row.margin_percent,
+                    gross_profit=getattr(row, "gross_profit", None) if hasattr(row, "gross_profit") else None,
+                    gross_margin_percent=getattr(row, "gross_margin_percent", None) if hasattr(row, "gross_margin_percent") else None,
+                    net_profit_estimated=getattr(row, "net_profit_estimated", None) if hasattr(row, "net_profit_estimated") else None,
                     estimated_sales_per_day=row.estimated_sales_per_day,
+                    approx_profit_per_day=approx_profit_per_day,
                     global_score=row.global_score,
                     decision=row.decision,
                     is_real_asin=is_real_asin,

@@ -83,6 +83,25 @@ class ProductScore(Base):
         comment="Marge en pourcentage (0-100)",
     )
 
+    # Profit model (marges brutes et nettes)
+    gross_profit: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Marge brute (EUR) = prix vente - frais Amazon - shipping - coût achat",
+    )
+
+    gross_margin_percent: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(5, 2),
+        nullable=True,
+        comment="Marge brute en pourcentage",
+    )
+
+    net_profit_estimated: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Profit net estimé après IS/CFE (EUR) = gross_profit * tax_factor",
+    )
+
     # Métriques de marché
     estimated_sales_per_day: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(10, 2),

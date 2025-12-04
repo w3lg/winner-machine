@@ -1,0 +1,23 @@
+# Configuration du modèle de profit par marketplace
+# Utilisé pour calculer les marges brutes et nettes estimées
+
+fr:
+  enabled: true
+  tax_factor_after_is_cfe: 0.7  # Facteur après IS/CFE : 70% du profit brut reste net
+  default_shipping_cost_per_unit: 5.0  # Coût de transport par unité (EUR)
+  tva_rate: 0.20  # Taux de TVA (20% pour la France)
+
+# Exemples pour d'autres marketplaces (à configurer plus tard)
+# de:
+#   enabled: false
+#   tax_factor_after_is_cfe: 0.7
+#   default_shipping_cost_per_unit: 5.0
+#   tva_rate: 0.19
+# es:
+#   enabled: false
+#   tax_factor_after_is_cfe: 0.7
+#   default_shipping_cost_per_unit: 5.0
+#   tva_rate: 0.21
+
+
+

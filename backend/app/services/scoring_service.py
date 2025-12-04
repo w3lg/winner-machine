@@ -3,6 +3,9 @@ Service de scoring pour les produits et options de sourcing.
 
 Calcule les scores de rentabilité (marges, frais, risque) et détermine
 la décision finale (A_launch, B_review, C_drop).
+
+Intègre SP-API pour récupérer les prix et frais réels, et utilise
+un modèle de profit pour calculer les marges brutes et nettes.
 """
 import logging
 import yaml
@@ -13,6 +16,9 @@ from typing import Optional
 from app.models.product_candidate import ProductCandidate
 from app.models.sourcing_option import SourcingOption
 from app.models.product_score import ProductScore
+from app.services.spapi_client import SPAPIClient
+from app.services.profit_model_service import get_profit_model_service
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,9 @@ class ScoringService:
 
         self._fees_config: Optional[dict] = None
         self._scoring_rules: Optional[dict] = None
+        self.spapi_client = SPAPIClient()
+        self.profit_model_service = get_profit_model_service()
+        self.settings = get_settings()
 
     def _load_fees_config(self) -> dict:
         """Charge la configuration des frais depuis fees.yml."""
@@ -97,66 +106,170 @@ class ScoringService:
         """
         fees_config = self._load_fees_config()
         scoring_rules = self._load_scoring_rules()
+        
+        # Récupérer la config du profit model pour le marketplace
+        marketplace_code = candidate.source_marketplace.replace("amazon_", "")  # "amazon_fr" -> "fr"
+        profit_config = self.profit_model_service.get_marketplace_config(marketplace_code)
 
-        # 1. Déterminer le prix de vente cible
-        selling_price_target = candidate.avg_price
+        # ============================================================
+        # 1. PRIX DE VENTE CIBLE (avec SP-API si disponible)
+        # ============================================================
+        selling_price_target = None
+        
+        # Essayer SP-API d'abord
+        spapi_pricing = self.spapi_client.get_pricing_for_asin(
+            candidate.asin,
+            marketplace_id=self.settings.SPAPI_MARKETPLACE_ID_FR
+        )
+        
+        if spapi_pricing:
+            # Priorité : buybox_price > lowest_fba_price > lowest_fbm_price
+            selling_price_target = (
+                spapi_pricing.get("buybox_price") or
+                spapi_pricing.get("lowest_fba_price") or
+                spapi_pricing.get("lowest_fbm_price")
+            )
+            if selling_price_target:
+                selling_price_target = Decimal(str(selling_price_target))
+                logger.debug(f"Prix depuis SP-API pour {candidate.asin}: {selling_price_target} EUR")
+        
+        # Fallback sur Keepa avg_price
         if selling_price_target is None:
-            # Fallback: 2x le coût unitaire si disponible
+            selling_price_target = candidate.avg_price
+        
+        # Fallback final : 2x le coût unitaire
+        if selling_price_target is None:
             if option.unit_cost:
                 selling_price_target = option.unit_cost * Decimal("2.0")
             else:
-                # Pas de prix cible possible
                 selling_price_target = Decimal("0")
                 logger.warning(
-                    f"Pas de prix moyen pour {candidate.asin} et pas de unit_cost pour {option.supplier_name}. "
-                    "Prix cible = 0"
+                    f"Pas de prix pour {candidate.asin}, prix cible = 0"
                 )
 
-        # 2. Taux de commission Amazon (par catégorie ou défaut)
-        commission_rate = Decimal(str(fees_config.get("commission_rates", {}).get("default", 0.15)))
+        # ============================================================
+        # 2. FRAIS AMAZON (avec SP-API si disponible)
+        # ============================================================
+        amazon_fees_estimate = None
+        
+        # Essayer SP-API Fees Estimate
+        if selling_price_target and selling_price_target > 0:
+            spapi_fees = self.spapi_client.get_fees_estimate(
+                candidate.asin,
+                marketplace_id=self.settings.SPAPI_MARKETPLACE_ID_FR,
+                price=float(selling_price_target)
+            )
+            
+            if spapi_fees and spapi_fees.get("total_fees"):
+                amazon_fees_estimate = Decimal(str(spapi_fees["total_fees"]))
+                logger.debug(f"Frais Amazon depuis SP-API pour {candidate.asin}: {amazon_fees_estimate} EUR")
+        
+        # Fallback sur le modèle approximatif
+        if amazon_fees_estimate is None:
+            commission_rate = Decimal(str(fees_config.get("commission_rates", {}).get("default", 0.15)))
+            commission_fee = selling_price_target * commission_rate if selling_price_target > 0 else Decimal("0")
+            fba_fee = Decimal(str(fees_config.get("fba_fees", {}).get("standard", 4.50)))
+            amazon_fees_estimate = commission_fee + fba_fee
 
-        # 3. Frais Amazon (commission + FBA)
-        commission_fee = selling_price_target * commission_rate if selling_price_target > 0 else Decimal("0")
-        fba_fee = Decimal(str(fees_config.get("fba_fees", {}).get("standard", 4.50)))
-        amazon_fees_estimate = commission_fee + fba_fee
-
-        # 4. Coûts logistiques
+        # ============================================================
+        # 3. COÛTS LOGISTIQUES (depuis profit model ou fees config)
+        # ============================================================
         if option.shipping_cost_unit:
             logistics_cost_estimate = option.shipping_cost_unit
+        elif profit_config.get("enabled"):
+            # Utiliser le profit model si activé
+            logistics_cost_estimate = Decimal(str(profit_config.get("default_shipping_cost_per_unit", 5.0)))
         else:
             logistics_cost_estimate = Decimal(
                 str(fees_config.get("logistics", {}).get("default_shipping_per_unit", 2.00))
             )
 
-        # 5. Coût unitaire du produit
-        unit_cost = option.unit_cost or Decimal("0")
+        # ============================================================
+        # 4. COÛT UNITAIRE DU PRODUIT
+        # ============================================================
+        purchase_cost = option.unit_cost or Decimal("0")
 
-        # 6. Marge absolue
-        margin_absolute = (
-            selling_price_target
-            - amazon_fees_estimate
-            - logistics_cost_estimate
-            - unit_cost
-        )
+        # ============================================================
+        # 5. MARGES BRUTES (Profit Model FR)
+        # ============================================================
+        gross_profit = None
+        gross_margin_percent = None
+        
+        if selling_price_target and selling_price_target > 0:
+            # Marge brute = prix vente - frais Amazon - shipping - coût achat
+            gross_profit = (
+                selling_price_target
+                - amazon_fees_estimate
+                - logistics_cost_estimate
+                - purchase_cost
+            )
+            
+            # Marge brute en pourcentage
+            gross_margin_percent = (gross_profit / selling_price_target) * Decimal("100")
+        
+        # ============================================================
+        # 6. PROFIT NET ESTIMÉ (après IS/CFE)
+        # ============================================================
+        net_profit_estimated = None
+        if gross_profit is not None and profit_config.get("enabled"):
+            tax_factor = Decimal(str(profit_config.get("tax_factor_after_is_cfe", 0.7)))
+            net_profit_estimated = gross_profit * tax_factor
+        
+        # ============================================================
+        # 7. MARGES ABSOLUES ET POURCENTAGE (pour compatibilité avec l'existant)
+        # ============================================================
+        # Utiliser gross_profit/gross_margin_percent comme base, sinon recalculer
+        if gross_profit is not None:
+            margin_absolute = gross_profit
+        else:
+            # Fallback : calculer depuis selling_price_target
+            margin_absolute = (
+                selling_price_target
+                - amazon_fees_estimate
+                - logistics_cost_estimate
+                - purchase_cost
+            ) if selling_price_target else None
+        
+        if gross_margin_percent is not None:
+            margin_percent = gross_margin_percent
+        else:
+            # Fallback : calculer depuis margin_absolute
+            margin_percent = (
+                (margin_absolute / selling_price_target) * Decimal("100")
+                if margin_absolute is not None and selling_price_target and selling_price_target > 0
+                else None
+            )
 
-        # 7. Marge en pourcentage
-        margin_percent = None
-        if selling_price_target > 0:
-            margin_percent = (margin_absolute / selling_price_target) * Decimal("100")
-
-        # 8. Estimations de ventes par jour
+        # ============================================================
+        # 8. ESTIMATIONS DE VENTES PAR JOUR
+        # ============================================================
         estimated_sales_per_day = candidate.estimated_sales_per_day or Decimal("1")
 
-        # 9. Facteur de risque (pour l'instant, défaut)
+        # ============================================================
+        # 9. FACTEUR DE RISQUE
+        # ============================================================
         risk_factor = Decimal(str(scoring_rules.get("risk_factors", {}).get("default", 0.1)))
 
-        # 10. Score global
+        # ============================================================
+        # 10. SCORE GLOBAL (avec prise en compte du profit net si disponible)
+        # ============================================================
         global_score = None
         if margin_percent is not None:
-            # Score = marge% * ventes/jour * (1 - risque)
-            global_score = margin_percent * estimated_sales_per_day * (Decimal("1") - risk_factor)
+            # Score de base = marge% * ventes/jour * (1 - risque)
+            base_score = margin_percent * estimated_sales_per_day * (Decimal("1") - risk_factor)
+            
+            # Si profit net disponible, augmenter le poids des produits rentables
+            if net_profit_estimated is not None and net_profit_estimated > 0:
+                # Bonus : +10% par EUR de profit net par jour (jusqu'à +50%)
+                profit_per_day = net_profit_estimated * estimated_sales_per_day
+                bonus_factor = min(Decimal("1.5"), Decimal("1.0") + (profit_per_day / Decimal("10")))
+                global_score = base_score * bonus_factor
+            else:
+                global_score = base_score
 
-        # 11. Décision finale
+        # ============================================================
+        # 11. DÉCISION FINALE
+        # ============================================================
         min_margin = Decimal(str(scoring_rules.get("min_margin_percent", 20)))
         min_score_A = Decimal(str(scoring_rules.get("min_global_score_A", 100)))
         min_score_B = Decimal(str(scoring_rules.get("min_global_score_B", 20)))
@@ -170,7 +283,9 @@ class ScoringService:
         else:
             decision = "C_drop"
 
-        # Créer et retourner le ProductScore (non persisté)
+        # ============================================================
+        # 9. CRÉER ET RETOURNER LE ProductScore (non persisté)
+        # ============================================================
         product_score = ProductScore(
             product_candidate_id=candidate.id,
             sourcing_option_id=option.id,
@@ -179,6 +294,9 @@ class ScoringService:
             logistics_cost_estimate=logistics_cost_estimate,
             margin_absolute=margin_absolute,
             margin_percent=margin_percent,
+            gross_profit=gross_profit,
+            gross_margin_percent=gross_margin_percent,
+            net_profit_estimated=net_profit_estimated,
             estimated_sales_per_day=estimated_sales_per_day,
             risk_factor=risk_factor,
             global_score=global_score,

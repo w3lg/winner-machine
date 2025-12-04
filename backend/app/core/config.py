@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     AMAZON_SP_API_CLIENT_SECRET: Optional[str] = None
     KEYBUZZ_API_KEY: Optional[str] = None
     
+    # Amazon Selling Partner API (SP-API) Configuration
+    SPAPI_LWA_CLIENT_ID: Optional[str] = None
+    SPAPI_LWA_CLIENT_SECRET: Optional[str] = None
+    SPAPI_LWA_REFRESH_TOKEN: Optional[str] = None
+    SPAPI_ROLE_ARN: Optional[str] = None
+    SPAPI_SELLER_ID: Optional[str] = None
+    SPAPI_REGION: str = "eu-west-1"
+    SPAPI_MARKETPLACE_ID_FR: str = "A13V1IB3VIYZZH"
+    
     # Listing & Branding
     DEFAULT_BRAND_NAME: str = "YOUR_BRAND"
 

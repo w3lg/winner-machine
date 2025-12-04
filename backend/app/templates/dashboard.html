@@ -425,7 +425,11 @@
                         <th class="sortable" data-sort="amazon_fees_estimate">Frais Amazon</th>
                         <th class="sortable" data-sort="margin_absolute">Marge €</th>
                         <th class="sortable" data-sort="margin_percent">Marge %</th>
+                        <th class="sortable" data-sort="gross_profit">Marge brute €</th>
+                        <th class="sortable" data-sort="gross_margin_percent">Marge brute %</th>
+                        <th class="sortable" data-sort="net_profit_estimated">Marge nette €</th>
                         <th class="sortable" data-sort="estimated_sales_per_day">Ventes/jour</th>
+                        <th class="sortable" data-sort="approx_profit_per_day">Profit/jour</th>
                         <th class="sortable" data-sort="global_score">Score</th>
                         <th class="sortable" data-sort="decision">Decision</th>
                     </tr>
@@ -665,7 +669,11 @@
                     <td>${formatNumber(item.amazon_fees_estimate, 2, '€')}</td>
                     <td>${formatNumber(item.margin_absolute, 2, '€')}</td>
                     <td>${formatNumber(item.margin_percent, 2, '%')}</td>
+                    <td>${formatNumber(item.gross_profit, 2, '€')}</td>
+                    <td>${formatNumber(item.gross_margin_percent, 2, '%')}</td>
+                    <td>${formatNumber(item.net_profit_estimated, 2, '€')}</td>
                     <td>${formatNumber(item.estimated_sales_per_day, 2)}</td>
+                    <td>${formatNumber(item.approx_profit_per_day, 2, '€')}</td>
                     <td>${formatNumber(item.global_score, 2)}</td>
                     <td><span class="status ${getDecisionClass(item.decision)}">${item.decision || '-'}</span></td>
                 `;
