@@ -171,13 +171,12 @@ class ApifyClient:
         actor_id = "amazon-scraper/amazon-bestsellers-scraper"
         
         # Construire l'URL de best sellers Amazon FR
-        # Pour l'instant, on utilise toujours l'URL Amazon FR comme demandé
         bestsellers_url = "https://www.amazon.fr/gp/bestsellers"
         
         # Préparer les données d'entrée pour l'actor
-        # L'actor attend une liste d'URLs de catégories Amazon dans categoryUrls
+        # Format exact comme spécifié par l'utilisateur : categoryUrls est une liste
         input_data = {
-            "categoryUrls": [bestsellers_url],
+            "categoryUrls": [bestsellers_url],  # Liste d'URLs comme demandé
             "maxItems": min(limit, 500),  # Limiter à 500 max par run
         }
 
