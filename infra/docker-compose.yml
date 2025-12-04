@@ -49,6 +49,7 @@ services:
       AMAZON_SP_API_CLIENT_ID: ${AMAZON_SP_API_CLIENT_ID:-}
       AMAZON_SP_API_CLIENT_SECRET: ${AMAZON_SP_API_CLIENT_SECRET:-}
       KEYBUZZ_API_KEY: ${KEYBUZZ_API_KEY:-}
+      APIFY_API_KEY: ${APIFY_API_KEY:-}
     volumes:
       - app_data:/app/data
     ports:

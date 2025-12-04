@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     AMAZON_SP_API_CLIENT_ID: Optional[str] = None
     AMAZON_SP_API_CLIENT_SECRET: Optional[str] = None
     KEYBUZZ_API_KEY: Optional[str] = None
+    APIFY_API_KEY: Optional[str] = None
     
     # Amazon Selling Partner API (SP-API) Configuration
     SPAPI_LWA_CLIENT_ID: Optional[str] = None
