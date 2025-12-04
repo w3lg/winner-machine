@@ -19,6 +19,7 @@ from app.jobs.discover_job import DiscoverJob
 from app.jobs.sourcing_job import SourcingJob
 from app.jobs.scoring_job import ScoringJob
 from app.jobs.listing_job import ListingJob
+from app.jobs.asin_harvest_job import AsinHarvestJob
 from app.services.market_config import get_market_config_service
 
 logger = logging.getLogger(__name__)

@@ -18,5 +18,6 @@ from app.models.sourcing_option import SourcingOption  # noqa: E402
 from app.models.product_score import ProductScore  # noqa: E402
 from app.models.listing_template import ListingTemplate  # noqa: E402
 from app.models.bundle import Bundle  # noqa: E402
+from app.models.harvested_asin import HarvestedAsin  # noqa: E402
 
-__all__ = ["Base", "ProductCandidate", "SourcingOption", "ProductScore", "ListingTemplate", "Bundle"]
+__all__ = ["Base", "ProductCandidate", "SourcingOption", "ProductScore", "ListingTemplate", "Bundle", "HarvestedAsin"]

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.models.product_candidate import ProductCandidate
+from app.models.harvested_asin import HarvestedAsin
 from app.services.keepa_client import KeepaClient
 from app.services.market_config import get_market_config_service, MarketConfig
 
@@ -136,22 +137,25 @@ class DiscoverJob:
         """
         stats = {"created": 0, "updated": 0, "total_processed": 0, "errors": 0}
 
-        # Vérifier que la liste d'ASINs n'est pas vide
-        if not market_config.asins:
+        # Récupérer les ASINs depuis plusieurs sources (union)
+        all_asins = self._get_all_asins_for_market(market_config)
+
+        if not all_asins:
             logger.warning(
-                f"Liste d'ASINs vide pour le marché {market_config.label}. Le marché sera ignoré."
+                f"Aucun ASIN disponible pour le marché {market_config.label}. Le marché sera ignoré."
             )
             return stats
 
         logger.info(
-            f"Traitement de {len(market_config.asins)} ASINs pour le marché {market_config.label}"
+            f"Traitement de {len(all_asins)} ASINs pour le marché {market_config.label} "
+            f"(sources combinées: markets_asins.yml + harvested_asins)"
         )
 
         try:
-            # Récupérer les produits depuis Keepa en utilisant la liste d'ASINs
+            # Récupérer les produits depuis Keepa en utilisant la liste d'ASINs combinée
             products = self.keepa_client.get_products_by_asins(
                 domain=market_config.domain,
-                asin_list=market_config.asins
+                asin_list=all_asins
             )
         except Exception as e:
             logger.error(
@@ -240,6 +244,49 @@ class DiscoverJob:
                 continue
 
         return stats
+
+    def _get_all_asins_for_market(self, market_config: MarketConfig) -> list[str]:
+        """
+        Récupère tous les ASINs pour un marché depuis plusieurs sources.
+
+        Combine les ASINs de :
+        - markets_asins.yml (via market_config.asins)
+        - harvested_asins (table DB)
+
+        Args:
+            market_config: Configuration du marché.
+
+        Returns:
+            Liste d'ASINs uniques (union des deux sources).
+        """
+        all_asins = set()
+
+        # 1. ASINs depuis markets_asins.yml
+        if market_config.asins:
+            all_asins.update(market_config.asins)
+
+        # 2. ASINs depuis harvested_asins (table DB)
+        try:
+            harvested = (
+                self.db.query(HarvestedAsin)
+                .filter(HarvestedAsin.marketplace == self.market_code)
+                .all()
+            )
+            harvested_asins = [h.asin for h in harvested]
+            all_asins.update(harvested_asins)
+
+            if harvested_asins:
+                logger.info(
+                    f"Récupération de {len(harvested_asins)} ASINs depuis harvested_asins "
+                    f"pour le marché {self.market_code}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"Erreur lors de la récupération des ASINs depuis harvested_asins: {str(e)}"
+            )
+
+        # Retourner une liste unique
+        return list(all_asins)
 
     def _upsert_product(
         self,

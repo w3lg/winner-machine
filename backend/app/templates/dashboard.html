@@ -332,6 +332,18 @@
             </div>
 
             <div class="job-card">
+                <h3>🌾 ASIN Harvester</h3>
+                <p>Importe des ASINs depuis Apify (Best Sellers FR)</p>
+                <div class="filter-group" style="margin-bottom: 15px;">
+                    <label for="harvest-limit" style="margin-bottom: 5px; color: #666; font-size: 0.9em;">Nombre d'ASINs :</label>
+                    <input type="number" id="harvest-limit" value="500" min="1" max="10000" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; width: 100%; font-size: 0.95em;">
+                </div>
+                <button class="btn" onclick="runAsinHarvest()" id="btn-asin-harvest">
+                    Importer 500 ASINs (Apify)
+                </button>
+            </div>
+
+            <div class="job-card">
                 <h3>🏭 Module B : Sourcing</h3>
                 <p>Trouve des options de sourcing pour les produits</p>
                 <button class="btn" onclick="runJob('sourcing')" id="btn-sourcing">
@@ -512,6 +524,96 @@
                 // Afficher un statut visuel
                 if (data.success) {
                     resultEl.innerHTML = `<span class="status success">✓ Succès</span>\n\n<pre>${formattedResult}</pre>`;
+                } else {
+                    resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\n<pre>${formattedResult}</pre>`;
+                }
+
+            } catch (error) {
+                console.error('Erreur lors de l\'exécution:', error);
+                const errorMessage = error.message || 'Erreur inconnue';
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nErreur: ${errorMessage}`;
+                if (error.stack) {
+                    console.error('Stack trace:', error.stack);
+                }
+            } finally {
+                // Réactiver le bouton
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = originalText;
+                }
+            }
+        }
+
+        async function runAsinHarvest() {
+            console.log('Lancement du job ASIN Harvest');
+            const resultEl = document.getElementById('result');
+            if (!resultEl) {
+                console.error('Élément result non trouvé');
+                return;
+            }
+            
+            const btnEl = document.getElementById('btn-asin-harvest');
+            if (!btnEl) {
+                console.error('Bouton btn-asin-harvest non trouvé');
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nBouton non trouvé: btn-asin-harvest`;
+                return;
+            }
+            
+            // Récupérer les paramètres
+            const limitInput = document.getElementById('harvest-limit');
+            const marketSelect = document.getElementById('market-select');
+            const limit = limitInput ? parseInt(limitInput.value) || 500 : 500;
+            const market = marketSelect ? marketSelect.value : 'amazon_fr';
+            const source = 'apify_bestsellers';
+            
+            // Sauvegarder le texte original du bouton
+            const originalText = btnEl.textContent || btnEl.innerHTML;
+            
+            // Désactiver le bouton et afficher le loading
+            btnEl.disabled = true;
+            btnEl.innerHTML = `Import de ${limit} ASINs en cours... <span class="loading"></span>`;
+            resultEl.textContent = `Lancement de l'import ASIN Harvest: ${limit} ASINs depuis Apify (${market})...\n\nVeuillez patienter, cela peut prendre plusieurs minutes...`;
+
+            try {
+                console.log(`Appel de /api/v1/jobs/asin_harvest/run avec limit=${limit}, market=${market}, source=${source}`);
+                // Timeout long car Apify peut prendre du temps (10 minutes)
+                const timeout = 600000;
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeout);
+                
+                // Construire l'URL avec les paramètres
+                const url = `/api/v1/jobs/asin_harvest/run?market=${encodeURIComponent(market)}&source=${encodeURIComponent(source)}&limit=${limit}`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    signal: controller.signal,
+                });
+                
+                clearTimeout(timeoutId);
+
+                console.log('Réponse reçue:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Données reçues:', data);
+                
+                // Afficher le résultat formaté
+                const formattedResult = JSON.stringify(data, null, 2);
+                
+                // Afficher un statut visuel
+                if (data.success) {
+                    resultEl.innerHTML = `<span class="status success">✓ Succès</span>\n\n<pre>${formattedResult}</pre>`;
+                    // Actualiser automatiquement les winners après l'import
+                    if (typeof loadWinners === 'function') {
+                        setTimeout(() => loadWinners(), 2000);
+                    }
                 } else {
                     resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\n<pre>${formattedResult}</pre>`;
                 }
