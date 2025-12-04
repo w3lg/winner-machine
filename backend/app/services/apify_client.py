@@ -63,6 +63,8 @@ class ApifyClient:
                     params=params,
                     json=json_data,
                 )
+                # Logger le status HTTP (niveau INFO comme demandé)
+                logger.info(f"Status HTTP Apify: {response.status_code}")
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
@@ -167,17 +169,19 @@ class ApifyClient:
             return []
 
         # Actor Apify pour les best sellers Amazon
-        # Documentation: https://apify.com/amazon-scraper/amazon-bestsellers-scraper
-        actor_id = "amazon-scraper/amazon-bestsellers-scraper"
+        # Documentation: https://apify.com/happitap/amazon-best-sellers-scraper/api
+        actor_id = "happitap/amazon-best-sellers-scraper"
         
         # Construire l'URL de best sellers Amazon FR
         bestsellers_url = "https://www.amazon.fr/gp/bestsellers"
         
         # Préparer les données d'entrée pour l'actor
-        # Format exact comme spécifié par l'utilisateur : categoryUrls est une liste
+        # Format attendu par happitap/amazon-best-sellers-scraper
         input_data = {
-            "categoryUrls": [bestsellers_url],  # Liste d'URLs comme demandé
-            "maxItems": min(limit, 500),  # Limiter à 500 max par run
+            "startUrls": [
+                {"url": bestsellers_url}
+            ],
+            "maxProducts": min(limit, 100),  # Limiter à 100 max par run
         }
 
         try:
@@ -219,10 +223,15 @@ class ApifyClient:
                 return []
 
             logger.info(f"Réception de {len(items)} items bruts depuis Apify")
-
-            # Stocker un exemple d'item brut pour debug (premier item)
+            
+            # Logger le status HTTP et un exemple d'item brut (niveau INFO comme demandé)
             if items:
-                logger.debug(f"Exemple d'item brut Apify: {items[0]}")
+                logger.info(f"Exemple d'item brut Apify (premier item): {items[0]}")
+                # Logger aussi l'ASIN et le titre si disponibles
+                first_item = items[0]
+                asin_example = first_item.get("asin") or first_item.get("ASIN") or "N/A"
+                title_example = first_item.get("title") or first_item.get("name") or "N/A"
+                logger.info(f"Premier item - ASIN: {asin_example}, Titre: {title_example}")
 
             # Extraire les ASINs depuis les items
             asins = []

@@ -64,6 +64,7 @@ async def dashboard(request: Request):
 class RunJobRequest(BaseModel):
     """Requête pour lancer un job."""
     market: Optional[str] = None  # Code du marché pour le job discover
+    force: Optional[bool] = False  # Si True, force le recalcul pour tous les produits
 
 
 @router.post("/ui/run/{job_name}")
@@ -106,7 +107,9 @@ async def run_job(
                 try:
                     # Pour le job discover, passer le paramètre market
                     market_code = request.market if request and step_name == "discover" else None
-                    result = await _run_single_job(step_name, db, market_code=market_code)
+                    # Pour sourcing et scoring, passer force=True
+                    force = request.force if request and step_name in ["sourcing", "scoring"] else False
+                    result = await _run_single_job(step_name, db, market_code=market_code, force=force)
                     results.append({
                         "step": step_name,
                         "result": result,
@@ -141,7 +144,8 @@ async def run_job(
             # Job simple
             logger.info(f"Exécution du job: {job_name}")
             market_code = request.market if request and job_name == "discover" else None
-            result = await _run_single_job(job_name, db, market_code=market_code)
+            force = request.force if request else False
+            result = await _run_single_job(job_name, db, market_code=market_code, force=force)
             return result
 
     except Exception as e:
@@ -157,6 +161,7 @@ async def _run_single_job(
     job_name: str,
     db: Session,
     market_code: Optional[str] = None,
+    force: Optional[bool] = False,
 ) -> Dict[str, Any]:
     """
     Exécute un job unique en appelant directement la classe Job.
@@ -181,7 +186,8 @@ async def _run_single_job(
             }
         elif job_name == "sourcing":
             job = SourcingJob(db)
-            stats = job.run()
+            force = request.force if request else False
+            stats = job.run(force=force)
             return {
                 "success": True,
                 "job_name": job_name,
@@ -190,7 +196,8 @@ async def _run_single_job(
             }
         elif job_name == "scoring":
             job = ScoringJob(db)
-            stats = job.run()
+            force = request.force if request else False
+            stats = job.run(force=force)
             return {
                 "success": True,
                 "job_name": job_name,

@@ -497,6 +497,10 @@
                         body.market = marketSelect.value;
                     }
                 }
+                // Pour les jobs sourcing et scoring, ajouter force=true
+                if (jobName === 'sourcing' || jobName === 'scoring') {
+                    body.force = true;
+                }
                 
                 const response = await fetch(`/ui/run/${jobName}`, {
                     method: 'POST',

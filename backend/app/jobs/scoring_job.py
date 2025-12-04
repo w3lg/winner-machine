@@ -32,12 +32,13 @@ class ScoringJob:
         self.db = db
         self.scoring_service = get_scoring_service()
 
-    def run(self) -> Dict[str, int]:
+    def run(self, force: bool = False) -> Dict[str, int]:
         """
         Lance le job de scoring.
 
-        Traite tous les couples (ProductCandidate, SourcingOption) qui n'ont pas encore de ProductScore,
-        calcule les scores, et met à jour le statut des produits selon les meilleures décisions.
+        Args:
+            force: Si True, recalcule les scores pour TOUS les couples (remplace les anciens).
+                   Si False, ne traite que les couples sans score (comportement par défaut).
 
         Returns:
             Dictionnaire avec les statistiques :
@@ -46,10 +47,15 @@ class ScoringJob:
             - products_marked_scored: nombre de produits marqués "scored"
             - products_marked_rejected: nombre de produits marqués "rejected"
         """
-        logger.info("=== Démarrage du job de scoring ===")
+        logger.info(f"=== Démarrage du job de scoring (force={force}) ===")
 
-        # Récupérer les couples éligibles (sans score)
-        pairs_to_score = self._get_eligible_pairs()
+        # Récupérer les couples éligibles
+        if force:
+            pairs_to_score = self._get_all_pairs()
+            # Supprimer les scores existants pour ces couples
+            self._delete_existing_scores_for_pairs(pairs_to_score)
+        else:
+            pairs_to_score = self._get_eligible_pairs()
 
         if not pairs_to_score:
             logger.warning("Aucun couple (produit, option) éligible pour le scoring. Le job ne fera rien.")
@@ -217,4 +223,52 @@ class ScoringJob:
             return "scored"
         else:
             return "rejected"
+
+    def _get_all_pairs(self) -> List[tuple]:
+        """
+        Récupère TOUS les couples (ProductCandidate, SourcingOption).
+
+        Returns:
+            Liste de tuples (ProductCandidate, SourcingOption).
+        """
+        all_options = self.db.query(SourcingOption).all()
+        
+        pairs = []
+        for option in all_options:
+            candidate = self.db.query(ProductCandidate).filter(
+                ProductCandidate.id == option.product_candidate_id
+            ).first()
+            
+            if candidate:
+                pairs.append((candidate, option))
+        
+        return pairs
+
+    def _delete_existing_scores_for_pairs(self, pairs: List[tuple]):
+        """
+        Supprime les scores existants pour les couples donnés.
+
+        Args:
+            pairs: Liste de tuples (ProductCandidate, SourcingOption).
+        """
+        if not pairs:
+            return
+        
+        # Extraire les IDs de candidats et d'options
+        candidate_ids = [pair[0].id for pair in pairs]
+        option_ids = [pair[1].id for pair in pairs]
+        
+        deleted_count = (
+            self.db.query(ProductScore)
+            .filter(
+                and_(
+                    ProductScore.product_candidate_id.in_(candidate_ids),
+                    ProductScore.sourcing_option_id.in_(option_ids)
+                )
+            )
+            .delete(synchronize_session=False)
+        )
+        
+        # Pas de commit ici - sera fait dans run()
+        logger.info(f"Suppression de {deleted_count} score(s) existant(s) pour {len(pairs)} couple(s) (commit différé)")
 

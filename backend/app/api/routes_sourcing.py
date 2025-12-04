@@ -7,7 +7,7 @@ import logging
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -77,17 +77,24 @@ class SourcingOptionResponse(BaseModel):
     - Message de succès ou d'erreur
     """,
 )
-async def run_sourcing_job(db: Session = Depends(get_db)) -> SourcingJobResponse:
+async def run_sourcing_job(
+    force: bool = Query(default=False, description="Si True, traite TOUS les produits (supprime et régénère les options)"),
+    db: Session = Depends(get_db),
+) -> SourcingJobResponse:
     """
     Lance le job de sourcing.
 
     Trouve les produits candidats sans options de sourcing et crée
     des options en les matchant avec les catalogues des fournisseurs.
+    
+    Args:
+        force: Si True, traite TOUS les produits (supprime et régénère les options).
+               Si False, ne traite que les produits sans options.
     """
-    logger.info("Démarrage du job de sourcing via l'endpoint API")
+    logger.info(f"Démarrage du job de sourcing via l'endpoint API (force={force})")
     try:
         job = SourcingJob(db)
-        stats = job.run()
+        stats = job.run(force=force)
 
         response = SourcingJobResponse(
             success=True,

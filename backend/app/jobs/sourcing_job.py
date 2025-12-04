@@ -29,12 +29,13 @@ class SourcingJob:
         self.db = db
         self.sourcing_matcher = SourcingMatcher()
 
-    def run(self) -> Dict[str, int]:
+    def run(self, force: bool = False) -> Dict[str, int]:
         """
         Lance le job de sourcing.
 
-        Traite les ProductCandidate qui n'ont pas encore d'options de sourcing,
-        trouve des options via le SourcingMatcher, et les persiste en base.
+        Args:
+            force: Si True, traite TOUS les produits (supprime et régénère les options).
+                   Si False, ne traite que les produits sans options (comportement par défaut).
 
         Returns:
             Dictionnaire avec les statistiques :
@@ -42,10 +43,15 @@ class SourcingJob:
             - options_created: nombre d'options créées
             - products_without_options: nombre de produits sans aucune option trouvée
         """
-        logger.info("=== Démarrage du job de sourcing ===")
+        logger.info(f"=== Démarrage du job de sourcing (force={force}) ===")
 
-        # Récupérer les produits candidats éligibles (sans options de sourcing)
-        candidates = self._get_eligible_candidates()
+        # Récupérer les produits candidats éligibles
+        if force:
+            candidates = self._get_all_candidates()
+            # Supprimer les options existantes pour les produits éligibles
+            self._delete_existing_options_for_candidates(candidates)
+        else:
+            candidates = self._get_eligible_candidates()
 
         if not candidates:
             logger.warning("Aucun produit candidat éligible pour le sourcing. Le job ne fera rien.")
@@ -136,4 +142,33 @@ class SourcingJob:
         ]
 
         return eligible_candidates
+
+    def _get_all_candidates(self):
+        """
+        Récupère TOUS les produits candidats.
+
+        Returns:
+            Liste de tous les ProductCandidate.
+        """
+        return self.db.query(ProductCandidate).all()
+
+    def _delete_existing_options_for_candidates(self, candidates):
+        """
+        Supprime les options de sourcing existantes pour les produits candidats donnés.
+
+        Args:
+            candidates: Liste des ProductCandidate pour lesquels supprimer les options.
+        """
+        candidate_ids = [candidate.id for candidate in candidates]
+        if not candidate_ids:
+            return
+        
+        deleted_count = (
+            self.db.query(SourcingOption)
+            .filter(SourcingOption.product_candidate_id.in_(candidate_ids))
+            .delete(synchronize_session=False)
+        )
+        
+        # Pas de commit ici - sera fait dans run()
+        logger.info(f"Suppression de {deleted_count} option(s) de sourcing existante(s) pour {len(candidate_ids)} produit(s) (commit différé)")
 

@@ -83,17 +83,24 @@ class ProductScoreResponse(BaseModel):
     - Message de succès ou d'erreur
     """,
 )
-async def run_scoring_job(db: Session = Depends(get_db)) -> ScoringJobResponse:
+async def run_scoring_job(
+    force: bool = Query(default=False, description="Si True, recalcule les scores pour TOUS les couples (remplace les anciens)"),
+    db: Session = Depends(get_db),
+) -> ScoringJobResponse:
     """
     Lance le job de scoring.
 
     Calcule les scores de rentabilité pour tous les couples (produit, option)
     qui n'ont pas encore de score et met à jour le statut des produits.
+    
+    Args:
+        force: Si True, recalcule les scores pour TOUS les couples (remplace les anciens).
+               Si False, ne traite que les couples sans score.
     """
-    logger.info("Démarrage du job de scoring via l'endpoint API")
+    logger.info(f"Démarrage du job de scoring via l'endpoint API (force={force})")
     try:
         job = ScoringJob(db)
-        stats = job.run()
+        stats = job.run(force=force)
 
         response = ScoringJobResponse(
             success=True,
