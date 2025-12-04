@@ -49,7 +49,10 @@ class ApifyClient:
             logger.warning("APIFY_API_KEY non définie, impossible de faire la requête")
             return None
 
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
@@ -167,12 +170,12 @@ class ApifyClient:
         # Documentation: https://apify.com/amazon-scraper/amazon-bestsellers-scraper
         actor_id = "amazon-scraper/amazon-bestsellers-scraper"
         
-        # Construire l'URL de best sellers selon le domaine
-        domain_lower = domain.lower()
-        bestsellers_url = category or f"https://www.amazon.{domain_lower}/gp/bestsellers"
+        # Construire l'URL de best sellers Amazon FR
+        # Pour l'instant, on utilise toujours l'URL Amazon FR comme demandé
+        bestsellers_url = "https://www.amazon.fr/gp/bestsellers"
         
         # Préparer les données d'entrée pour l'actor
-        # L'actor attend une liste d'URLs de catégories Amazon
+        # L'actor attend une liste d'URLs de catégories Amazon dans categoryUrls
         input_data = {
             "categoryUrls": [bestsellers_url],
             "maxItems": min(limit, 500),  # Limiter à 500 max par run
@@ -183,6 +186,7 @@ class ApifyClient:
                 f"Récupération de {limit} best sellers Amazon {domain} via Apify (actor: {actor_id})..."
             )
             logger.info(f"URL best sellers: {bestsellers_url}")
+            logger.info(f"Input data envoyé à Apify: {input_data}")
 
             # Utiliser l'endpoint run-sync-get-dataset-items pour lancer l'actor et récupérer directement les items
             # Format: /acts/{actorId}/run-sync-get-dataset-items
@@ -190,10 +194,14 @@ class ApifyClient:
             actor_id_url = actor_id.replace("/", "~")
             endpoint_url = f"{self.base_url}/acts/{actor_id_url}/run-sync-get-dataset-items"
             
-            # L'endpoint attend les paramètres en query string (token) et input dans le body POST
+            # L'endpoint attend le token en query string ET l'input dans le body POST
+            # Le token peut aussi être passé via Authorization header (déjà fait dans _make_request)
             params = {"token": self.api_key}
             
             logger.info(f"Appel endpoint Apify: {endpoint_url}")
+            logger.info(f"Méthode: POST, Headers: Authorization Bearer + Content-Type application/json")
+            logger.info(f"Body JSON: {input_data}")
+            
             result = self._make_request("POST", endpoint_url, params=params, json_data=input_data)
 
             if not result:
