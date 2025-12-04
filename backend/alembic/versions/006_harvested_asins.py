@@ -12,7 +12,7 @@ from sqlalchemy import String, DateTime
 
 # revision identifiers, used by Alembic.
 revision = '006_harvested_asins'
-down_revision = '005_add_profit_fields_to_product_score'
+down_revision = '005_add_profit_fields'
 branch_labels = None
 depends_on = None
 
