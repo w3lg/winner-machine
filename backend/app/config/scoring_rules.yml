@@ -2,11 +2,19 @@
 # Utilisé par ScoringService pour calculer le score global et prendre la décision
 
 # Marge minimale requise (en pourcentage)
-min_margin_percent: 20
+min_margin_percent: 10
 
 # Seuils de score global pour les décisions
-min_global_score_A: 100  # Score minimum pour A_launch
+min_global_score_A: 50  # Score minimum pour A_launch
 min_global_score_B: 20   # Score minimum pour B_review
+
+# Règles basées sur profit/jour (optionnel, priorité sur min_global_score_A)
+# Si approx_profit_per_day >= 5 → decision = "A_launch"
+# Sinon si approx_profit_per_day >= 1 → decision = "B_review"
+# Sinon → "C_drop"
+use_profit_per_day_rules: true
+min_profit_per_day_A: 5.0  # EUR/jour minimum pour A_launch
+min_profit_per_day_B: 1.0  # EUR/jour minimum pour B_review
 
 # Facteurs de risque (0.0 à 1.0, plus élevé = plus risqué)
 risk_factors:

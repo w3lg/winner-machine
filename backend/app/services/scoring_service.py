@@ -251,7 +251,18 @@ class ScoringService:
         risk_factor = Decimal(str(scoring_rules.get("risk_factors", {}).get("default", 0.1)))
 
         # ============================================================
-        # 10. SCORE GLOBAL (avec prise en compte du profit net si disponible)
+        # 10. PROFIT PAR JOUR APPROXIMATIF (AVANT décision)
+        # ============================================================
+        approx_profit_per_day = None
+        if net_profit_estimated is not None and estimated_sales_per_day:
+            # Profit/jour = profit net * ventes/jour
+            approx_profit_per_day = net_profit_estimated * estimated_sales_per_day
+        elif margin_absolute is not None and estimated_sales_per_day:
+            # Fallback : utiliser marge absolue si profit net non disponible
+            approx_profit_per_day = margin_absolute * estimated_sales_per_day
+
+        # ============================================================
+        # 11. SCORE GLOBAL (avec prise en compte du profit net si disponible)
         # ============================================================
         global_score = None
         if margin_percent is not None:
@@ -268,14 +279,29 @@ class ScoringService:
                 global_score = base_score
 
         # ============================================================
-        # 11. DÉCISION FINALE
+        # 12. DÉCISION FINALE (règle profit/jour AVANT min_global_score_A)
         # ============================================================
-        min_margin = Decimal(str(scoring_rules.get("min_margin_percent", 20)))
-        min_score_A = Decimal(str(scoring_rules.get("min_global_score_A", 100)))
+        min_margin = Decimal(str(scoring_rules.get("min_margin_percent", 10)))
+        min_score_A = Decimal(str(scoring_rules.get("min_global_score_A", 50)))
         min_score_B = Decimal(str(scoring_rules.get("min_global_score_B", 20)))
+        
+        # Règle optionnelle basée sur profit/jour (priorité sur min_global_score_A)
+        use_profit_per_day_rules = scoring_rules.get("use_profit_per_day_rules", False)
+        min_profit_per_day_A = Decimal(str(scoring_rules.get("min_profit_per_day_A", 5.0)))
+        min_profit_per_day_B = Decimal(str(scoring_rules.get("min_profit_per_day_B", 1.0)))
 
+        # Vérifier d'abord la marge minimale
         if margin_percent is None or margin_percent < min_margin:
             decision = "C_drop"
+        # Si règle profit/jour activée et profit/jour calculé, l'appliquer EN PREMIER
+        elif use_profit_per_day_rules and approx_profit_per_day is not None:
+            if approx_profit_per_day >= min_profit_per_day_A:
+                decision = "A_launch"
+            elif approx_profit_per_day >= min_profit_per_day_B:
+                decision = "B_review"
+            else:
+                decision = "C_drop"
+        # Sinon, utiliser les règles de score global
         elif global_score is not None and global_score >= min_score_A:
             decision = "A_launch"
         elif global_score is not None and global_score >= min_score_B:
