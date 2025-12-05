@@ -71,7 +71,11 @@ async def run_asin_harvest_job(
     ),
     source: Optional[str] = Query(
         default="apify_bestsellers",
-        description="Source de récolte (apify_bestsellers, apify_movers, etc.)",
+        description="Source de récolte (apify_bestsellers, scraper_bestsellers, scraper_search, etc.)",
+    ),
+    keyword: Optional[str] = Query(
+        default=None,
+        description="Mot-clé de recherche (pour scraper_search uniquement)",
     ),
     limit: Optional[int] = Query(
         default=500,

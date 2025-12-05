@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.harvested_asin import HarvestedAsin
 from app.services.apify_client import ApifyClient
+from app.services.scraper_client import ScraperClient
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class AsinHarvestJob:
         """
         self.db = db
         self.apify_client = ApifyClient()
+        self.scraper_client = ScraperClient()
 
     def run(
         self,
@@ -62,17 +64,17 @@ class AsinHarvestJob:
         }
 
         try:
-            # Récupérer les ASINs depuis Apify selon la source
-            asins = self._fetch_asins_from_apify(source=source, market=market, limit=limit)
+            # Récupérer les ASINs selon la source (Apify ou scraper maison)
+            asins = self._fetch_asins(source=source, market=market, limit=limit)
 
             if not asins:
                 logger.warning(
-                    f"Aucun ASIN récolté depuis Apify pour {source} sur {market}"
+                    f"Aucun ASIN récolté pour {source} sur {market}"
                 )
                 return stats
 
             stats["harvested_total"] = len(asins)
-            logger.info(f"Récupération de {len(asins)} ASINs depuis Apify")
+            logger.info(f"Récupération de {len(asins)} ASINs depuis {source}")
 
             # Insérer les ASINs en base (ignorer les doublons)
             for asin in asins:
@@ -146,21 +148,29 @@ class AsinHarvestJob:
 
         return stats
 
-    def _fetch_asins_from_apify(
+    def _fetch_asins(
         self, source: str, market: str, limit: int
     ) -> list[str]:
         """
-        Récupère les ASINs depuis Apify selon la source.
+        Récupère les ASINs selon la source (Apify ou scraper maison).
 
         Args:
-            source: Source de récolte (apify_bestsellers, apify_movers, etc.).
+            source: Source de récolte (apify_bestsellers, scraper_bestsellers, scraper_search, etc.).
             market: Code du marché (amazon_fr, etc.).
             limit: Nombre maximum d'ASINs.
 
         Returns:
             Liste d'ASINs.
         """
-        # Extraire le domaine depuis le marché (amazon_fr -> FR)
+        # Sources scraper maison
+        if source == "scraper_bestsellers":
+            logger.info(f"Utilisation du scraper maison pour Best Sellers {market}")
+            return self.scraper_client.scrape_best_sellers_fr(limit=limit)
+        elif source == "scraper_search":
+            logger.warning(f"Source {source} nécessite un paramètre keyword (pas encore implémentée dans le job)")
+            return []
+        
+        # Sources Apify (mise en pause mais code conservé)
         domain_map = {
             "amazon_fr": "FR",
             "amazon_de": "DE",
@@ -172,13 +182,12 @@ class AsinHarvestJob:
         domain = domain_map.get(market, "FR")
 
         if source == "apify_bestsellers":
+            logger.info(f"Utilisation d'Apify pour Best Sellers {market} (payant - peut échouer)")
             return self.apify_client.get_bestsellers_asins(domain=domain, limit=limit)
         elif source == "apify_movers":
-            # À implémenter plus tard
             logger.warning(f"Source {source} pas encore implémentée")
             return []
         elif source == "apify_search":
-            # À implémenter plus tard
             logger.warning(f"Source {source} pas encore implémentée")
             return []
         else:

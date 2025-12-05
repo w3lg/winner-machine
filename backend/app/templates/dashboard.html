@@ -332,7 +332,7 @@
             </div>
 
             <div class="job-card">
-                <h3>🌾 ASIN Harvester</h3>
+                <h3>🌾 ASIN Harvester (Apify - Payant)</h3>
                 <p>Importe des ASINs depuis Apify (Best Sellers FR)</p>
                 <div class="filter-group" style="margin-bottom: 15px;">
                     <label for="harvest-limit" style="margin-bottom: 5px; color: #666; font-size: 0.9em;">Nombre d'ASINs :</label>
@@ -340,6 +340,18 @@
                 </div>
                 <button class="btn" onclick="runAsinHarvest()" id="btn-asin-harvest">
                     Importer 500 ASINs (Apify)
+                </button>
+            </div>
+
+            <div class="job-card">
+                <h3>🔧 ASIN Harvester (Scraper Maison)</h3>
+                <p>Scrape directement Amazon FR pour extraire des ASINs</p>
+                <div class="filter-group" style="margin-bottom: 15px;">
+                    <label for="scraper-limit" style="margin-bottom: 5px; color: #666; font-size: 0.9em;">Nombre d'ASINs :</label>
+                    <input type="number" id="scraper-limit" value="50" min="1" max="500" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; width: 100%; font-size: 0.95em;">
+                </div>
+                <button class="btn" onclick="runScraperHarvest()" id="btn-scraper-harvest">
+                    Importer 50 ASINs (Scraper Amazon FR)
                 </button>
             </div>
 
@@ -582,6 +594,95 @@
                 console.log(`Appel de /api/v1/jobs/asin_harvest/run avec limit=${limit}, market=${market}, source=${source}`);
                 // Timeout long car Apify peut prendre du temps (10 minutes)
                 const timeout = 600000;
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeout);
+                
+                // Construire l'URL avec les paramètres
+                const url = `/api/v1/jobs/asin_harvest/run?market=${encodeURIComponent(market)}&source=${encodeURIComponent(source)}&limit=${limit}`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    signal: controller.signal,
+                });
+                
+                clearTimeout(timeoutId);
+
+                console.log('Réponse reçue:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Données reçues:', data);
+                
+                // Afficher le résultat formaté
+                const formattedResult = JSON.stringify(data, null, 2);
+                
+                // Afficher un statut visuel
+                if (data.success) {
+                    resultEl.innerHTML = `<span class="status success">✓ Succès</span>\n\n<pre>${formattedResult}</pre>`;
+                    // Actualiser automatiquement les winners après l'import
+                    if (typeof loadWinners === 'function') {
+                        setTimeout(() => loadWinners(), 2000);
+                    }
+                } else {
+                    resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\n<pre>${formattedResult}</pre>`;
+                }
+
+            } catch (error) {
+                console.error('Erreur lors de l\'exécution:', error);
+                const errorMessage = error.message || 'Erreur inconnue';
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nErreur: ${errorMessage}`;
+                if (error.stack) {
+                    console.error('Stack trace:', error.stack);
+                }
+            } finally {
+                // Réactiver le bouton
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = originalText;
+                }
+            }
+        }
+
+        async function runScraperHarvest() {
+            console.log('Lancement du job ASIN Harvest via Scraper maison');
+            const resultEl = document.getElementById('result');
+            if (!resultEl) {
+                console.error('Élément result non trouvé');
+                return;
+            }
+            
+            const btnEl = document.getElementById('btn-scraper-harvest');
+            if (!btnEl) {
+                console.error('Bouton btn-scraper-harvest non trouvé');
+                resultEl.innerHTML = `<span class="status error">✗ Erreur</span>\n\nBouton non trouvé: btn-scraper-harvest`;
+                return;
+            }
+            
+            // Récupérer les paramètres
+            const limitInput = document.getElementById('scraper-limit');
+            const limit = limitInput ? parseInt(limitInput.value) || 50 : 50;
+            const market = 'amazon_fr';
+            const source = 'scraper_bestsellers';
+            
+            // Sauvegarder le texte original du bouton
+            const originalText = btnEl.textContent || btnEl.innerHTML;
+            
+            // Désactiver le bouton et afficher le loading
+            btnEl.disabled = true;
+            btnEl.innerHTML = `Scraping de ${limit} ASINs en cours... <span class="loading"></span>`;
+            resultEl.textContent = `Lancement du scraping Amazon FR: ${limit} ASINs depuis Best Sellers...\n\nVeuillez patienter...`;
+
+            try {
+                console.log(`Appel de /api/v1/jobs/asin_harvest/run avec limit=${limit}, market=${market}, source=${source}`);
+                // Timeout raisonnable pour le scraper (2 minutes)
+                const timeout = 120000;
                 
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeout);
