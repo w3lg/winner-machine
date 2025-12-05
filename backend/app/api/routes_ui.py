@@ -186,7 +186,6 @@ async def _run_single_job(
             }
         elif job_name == "sourcing":
             job = SourcingJob(db)
-            force = request.force if request else False
             stats = job.run(force=force)
             return {
                 "success": True,
@@ -196,7 +195,6 @@ async def _run_single_job(
             }
         elif job_name == "scoring":
             job = ScoringJob(db)
-            force = request.force if request else False
             stats = job.run(force=force)
             return {
                 "success": True,
