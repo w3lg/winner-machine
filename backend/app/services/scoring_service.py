@@ -71,20 +71,28 @@ class ScoringService:
 
     def _load_scoring_rules(self) -> dict:
         """Charge les règles de scoring depuis scoring_rules.yml."""
-        if self._scoring_rules is not None:
-            return self._scoring_rules
-
+        # Toujours recharger depuis le fichier pour éviter le cache
         try:
             with open(self.scoring_rules_path, "r", encoding="utf-8") as f:
                 self._scoring_rules = yaml.safe_load(f) or {}
+            logger.info(f"=== CHARGEMENT scoring_rules.yml ===")
+            logger.info(f"  min_margin_percent: {self._scoring_rules.get('min_margin_percent')}")
+            logger.info(f"  min_global_score_A: {self._scoring_rules.get('min_global_score_A')}")
+            logger.info(f"  min_global_score_B: {self._scoring_rules.get('min_global_score_B')}")
+            logger.info(f"  use_profit_per_day_rules: {self._scoring_rules.get('use_profit_per_day_rules')}")
+            logger.info(f"  min_profit_per_day_A: {self._scoring_rules.get('min_profit_per_day_A')}")
+            logger.info(f"  min_profit_per_day_B: {self._scoring_rules.get('min_profit_per_day_B')}")
+            logger.info(f"=== FIN CHARGEMENT scoring_rules.yml ===")
+            logger.debug(f"Règles de scoring chargées: use_profit_per_day_rules={self._scoring_rules.get('use_profit_per_day_rules')}")
             return self._scoring_rules
         except Exception as e:
             logger.error(f"Erreur lors du chargement de scoring_rules.yml: {e}", exc_info=True)
             # Valeurs par défaut
             self._scoring_rules = {
-                "min_margin_percent": 20,
-                "min_global_score_A": 100,
+                "min_margin_percent": 10,
+                "min_global_score_A": 50,
                 "min_global_score_B": 20,
+                "use_profit_per_day_rules": False,
                 "risk_factors": {"default": 0.1},
             }
             return self._scoring_rules
@@ -289,25 +297,87 @@ class ScoringService:
         use_profit_per_day_rules = scoring_rules.get("use_profit_per_day_rules", False)
         min_profit_per_day_A = Decimal(str(scoring_rules.get("min_profit_per_day_A", 5.0)))
         min_profit_per_day_B = Decimal(str(scoring_rules.get("min_profit_per_day_B", 1.0)))
+        
+        # Logs détaillés pour ASIN B06XZ9K244 (debug)
+        is_target_asin = candidate.asin == "B06XZ9K244"
+        if is_target_asin:
+            logger.info(f"=== DEBUG B06XZ9K244: Configuration scoring_rules.yml ===")
+            logger.info(f"  min_margin_percent: {scoring_rules.get('min_margin_percent')}")
+            logger.info(f"  min_global_score_A: {scoring_rules.get('min_global_score_A')}")
+            logger.info(f"  min_global_score_B: {scoring_rules.get('min_global_score_B')}")
+            logger.info(f"  use_profit_per_day_rules: {scoring_rules.get('use_profit_per_day_rules')}")
+            logger.info(f"  min_profit_per_day_A: {scoring_rules.get('min_profit_per_day_A')}")
+            logger.info(f"  min_profit_per_day_B: {scoring_rules.get('min_profit_per_day_B')}")
+            logger.info(f"=== DEBUG B06XZ9K244: Valeurs calculées ===")
+            logger.info(f"  margin_percent: {margin_percent}")
+            logger.info(f"  approx_profit_per_day: {approx_profit_per_day}")
+            logger.info(f"  net_profit_estimated: {net_profit_estimated}")
+            logger.info(f"  estimated_sales_per_day: {estimated_sales_per_day}")
+            logger.info(f"  global_score: {global_score}")
+            logger.info(f"=== DEBUG B06XZ9K244: Seuils utilisés ===")
+            logger.info(f"  min_margin: {min_margin}")
+            logger.info(f"  min_profit_per_day_A: {min_profit_per_day_A}")
+            logger.info(f"  min_profit_per_day_B: {min_profit_per_day_B}")
+            logger.info(f"  min_score_A: {min_score_A}")
+            logger.info(f"  min_score_B: {min_score_B}")
+            logger.info(f"  use_profit_per_day_rules: {use_profit_per_day_rules}")
+        
+        logger.debug(
+            f"Règles de scoring pour {candidate.asin}: "
+            f"use_profit_per_day_rules={use_profit_per_day_rules}, "
+            f"approx_profit_per_day={approx_profit_per_day}, "
+            f"min_profit_A={min_profit_per_day_A}, min_profit_B={min_profit_per_day_B}"
+        )
 
         # Vérifier d'abord la marge minimale
         if margin_percent is None or margin_percent < min_margin:
             decision = "C_drop"
+            logger.debug(f"Decision C_drop: marge minimale non atteinte ({margin_percent} < {min_margin})")
+            if is_target_asin:
+                logger.info(f"=== DEBUG B06XZ9K244: DECISION = C_drop (marge {margin_percent} < {min_margin}) ===")
         # Si règle profit/jour activée et profit/jour calculé, l'appliquer EN PREMIER
         elif use_profit_per_day_rules and approx_profit_per_day is not None:
+            logger.debug(
+                f"Application règle profit/jour: approx_profit_per_day={approx_profit_per_day}, "
+                f"min_A={min_profit_per_day_A}, min_B={min_profit_per_day_B}"
+            )
+            if is_target_asin:
+                logger.info(f"=== DEBUG B06XZ9K244: Application règle profit/jour ===")
+                logger.info(f"  approx_profit_per_day ({approx_profit_per_day}) >= min_profit_per_day_A ({min_profit_per_day_A}) ? {approx_profit_per_day >= min_profit_per_day_A}")
             if approx_profit_per_day >= min_profit_per_day_A:
                 decision = "A_launch"
+                logger.debug(f"Decision A_launch: profit/jour {approx_profit_per_day} >= {min_profit_per_day_A}")
+                if is_target_asin:
+                    logger.info(f"=== DEBUG B06XZ9K244: DECISION = A_launch (profit/jour {approx_profit_per_day} >= {min_profit_per_day_A}) ===")
             elif approx_profit_per_day >= min_profit_per_day_B:
                 decision = "B_review"
+                logger.debug(f"Decision B_review: profit/jour {approx_profit_per_day} >= {min_profit_per_day_B} mais < {min_profit_per_day_A}")
+                if is_target_asin:
+                    logger.info(f"=== DEBUG B06XZ9K244: DECISION = B_review (profit/jour {approx_profit_per_day} >= {min_profit_per_day_B} mais < {min_profit_per_day_A}) ===")
             else:
                 decision = "C_drop"
+                logger.debug(f"Decision C_drop: profit/jour {approx_profit_per_day} < {min_profit_per_day_B}")
+                if is_target_asin:
+                    logger.info(f"=== DEBUG B06XZ9K244: DECISION = C_drop (profit/jour {approx_profit_per_day} < {min_profit_per_day_B}) ===")
         # Sinon, utiliser les règles de score global
         elif global_score is not None and global_score >= min_score_A:
             decision = "A_launch"
+            logger.debug(f"Decision A_launch: score global {global_score} >= {min_score_A}")
+            if is_target_asin:
+                logger.info(f"=== DEBUG B06XZ9K244: DECISION = A_launch (score global {global_score} >= {min_score_A}) ===")
         elif global_score is not None and global_score >= min_score_B:
             decision = "B_review"
+            logger.debug(f"Decision B_review: score global {global_score} >= {min_score_B} mais < {min_score_A}")
+            if is_target_asin:
+                logger.info(f"=== DEBUG B06XZ9K244: DECISION = B_review (score global {global_score} >= {min_score_B} mais < {min_score_A}) ===")
         else:
             decision = "C_drop"
+            logger.debug(f"Decision C_drop: score global {global_score} < {min_score_B}")
+            if is_target_asin:
+                logger.info(f"=== DEBUG B06XZ9K244: DECISION = C_drop (score global {global_score} < {min_score_B}) ===")
+        
+        if is_target_asin:
+            logger.info(f"=== DEBUG B06XZ9K244: DECISION FINALE CHOISIE = {decision} ===")
 
         # ============================================================
         # 9. CRÉER ET RETOURNER LE ProductScore (non persisté)
