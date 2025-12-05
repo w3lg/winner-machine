@@ -7,6 +7,9 @@ la décision finale (A_launch, B_review, C_drop).
 Intègre SP-API pour récupérer les prix et frais réels, et utilise
 un modèle de profit pour calculer les marges brutes et nettes.
 """
+print("=== SCORING_SERVICE ACTIVE VERSION ===")
+print("=== FICHIER: backend/app/services/scoring_service.py ===")
+
 import logging
 import yaml
 from decimal import Decimal
@@ -21,6 +24,7 @@ from app.services.profit_model_service import get_profit_model_service
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+logger.warning("=== SCORING_SERVICE IMPORTED - VERSION ACTIVE ===")
 
 
 class ScoringService:
