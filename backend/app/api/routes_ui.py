@@ -107,8 +107,8 @@ async def run_job(
                 try:
                     # Pour le job discover, passer le paramètre market
                     market_code = request.market if request and step_name == "discover" else None
-                    # Pour sourcing et scoring, passer force=True
-                    force = request.force if request and step_name in ["sourcing", "scoring"] else False
+                    # Pour discover, sourcing et scoring, passer force si demandé
+                    force = request.force if request and step_name in ["discover", "sourcing", "scoring"] else False
                     result = await _run_single_job(step_name, db, market_code=market_code, force=force)
                     results.append({
                         "step": step_name,
@@ -177,7 +177,7 @@ async def _run_single_job(
     try:
         if job_name == "discover":
             job = DiscoverJob(db, market_code=market_code or "amazon_fr")
-            stats = job.run()
+            stats = job.run(force=force)
             return {
                 "success": True,
                 "job_name": job_name,

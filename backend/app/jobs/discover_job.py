@@ -39,10 +39,16 @@ class DiscoverJob:
         self.market_code = market_code or "amazon_fr"  # Par défaut: Amazon FR
         # Set pour tracker les ASINs déjà traités dans cette exécution
         self._processed_asins: Set[str] = set()
+        # Flag pour forcer la mise à jour même si le produit a déjà été traité
+        self._force_update: bool = False
 
-    def run(self) -> Dict[str, int]:
+    def run(self, force: bool = False) -> Dict[str, int]:
         """
         Lance le job de découverte pour le marché spécifié.
+
+        Args:
+            force: Si True, force la mise à jour de TOUS les produits (même ceux déjà traités).
+                   Si False, préserve le status des produits déjà traités (comportement par défaut).
 
         Returns:
             Dictionnaire avec les statistiques :
@@ -52,7 +58,8 @@ class DiscoverJob:
             - markets_processed: nombre de marchés traités
             - errors: nombre d'erreurs rencontrées
         """
-        logger.info(f"=== Démarrage du job de découverte de produits pour le marché: {self.market_code} ===")
+        logger.info(f"=== Démarrage du job de découverte de produits pour le marché: {self.market_code} (force={force}) ===")
+        self._force_update = force
 
         # Récupérer la configuration du marché
         market_config = self.market_service.get_market_by_code(self.market_code)
@@ -188,6 +195,7 @@ class DiscoverJob:
                     market_config.label,
                     self.market_code,
                     domain=market_config.domain,
+                    force=self._force_update,
                 )
                 
                 if is_new:
@@ -294,6 +302,7 @@ class DiscoverJob:
         category_name: str,
         marketplace_code: str,
         domain: Optional[int] = None,
+        force: bool = False,
     ) -> bool:
         """
         Upsert un produit en utilisant l'ORM SQLAlchemy.
@@ -304,13 +313,16 @@ class DiscoverJob:
         Args:
             keepa_product: Produit Keepa à traiter.
             category_name: Nom de la catégorie.
+            domain: Domaine Keepa (optionnel).
+            force: Si True, force la mise à jour même si le produit a déjà été traité.
         
         Returns:
             True si le produit a été créé, False s'il a été mis à jour.
         
         Note:
-            Le status est préservé si le produit a déjà été traité (scored, selected, launched),
+            Si force=False, le status est préservé si le produit a déjà été traité (scored, selected, launched),
             sinon il est mis à jour à "new".
+            Si force=True, le status est toujours réinitialisé à "new".
         """
         # Vérifier si le produit existe
         existing = (
@@ -338,8 +350,11 @@ class DiscoverJob:
             existing.rating = float(keepa_product.rating) if keepa_product.rating else None
             existing.raw_keepa_data = raw_data_dict
             existing.source_marketplace = marketplace_code
-            # Préserver le status si déjà traité
-            if existing.status not in ["scored", "selected", "launched"]:
+            # Si force=True, réinitialiser le status à "new" pour re-traiter le produit
+            # Sinon, préserver le status si déjà traité
+            if force:
+                existing.status = "new"
+            elif existing.status not in ["scored", "selected", "launched"]:
                 existing.status = "new"
             existing.updated_at = datetime.utcnow()
             

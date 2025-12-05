@@ -71,6 +71,10 @@ async def run_discover_job(
         default="amazon_fr",
         description="Code du marché à traiter (ex: amazon_fr, amazon_de, amazon_es)",
     ),
+    force: bool = Query(
+        default=False,
+        description="Si True, force la mise à jour de TOUS les produits (même ceux déjà traités)",
+    ),
     db: Session = Depends(get_db),
 ) -> DiscoverResponse:
     """
@@ -79,10 +83,10 @@ async def run_discover_job(
     Récupère les produits depuis Keepa en utilisant la liste d'ASINs configurée
     pour le marché et les stocke en base de données (création ou mise à jour).
     """
-    logger.info(f"Démarrage du job de découverte via l'endpoint API pour le marché: {market}")
+    logger.info(f"Démarrage du job de découverte via l'endpoint API pour le marché: {market} (force={force})")
     try:
         job = DiscoverJob(db, market_code=market)
-        stats = job.run()
+        stats = job.run(force=force)
 
         response = DiscoverResponse(
             success=True,
