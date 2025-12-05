@@ -71,31 +71,34 @@ class ScoringService:
 
     def _load_scoring_rules(self) -> dict:
         """Charge les règles de scoring depuis scoring_rules.yml."""
-        # Toujours recharger depuis le fichier pour éviter le cache
+        # TOUJOURS recharger depuis le fichier - AUCUN CACHE
+        # Ne pas utiliser self._scoring_rules comme cache pour forcer le rechargement à chaque appel
         try:
             with open(self.scoring_rules_path, "r", encoding="utf-8") as f:
-                self._scoring_rules = yaml.safe_load(f) or {}
-            logger.info(f"=== CHARGEMENT scoring_rules.yml ===")
-            logger.info(f"  min_margin_percent: {self._scoring_rules.get('min_margin_percent')}")
-            logger.info(f"  min_global_score_A: {self._scoring_rules.get('min_global_score_A')}")
-            logger.info(f"  min_global_score_B: {self._scoring_rules.get('min_global_score_B')}")
-            logger.info(f"  use_profit_per_day_rules: {self._scoring_rules.get('use_profit_per_day_rules')}")
-            logger.info(f"  min_profit_per_day_A: {self._scoring_rules.get('min_profit_per_day_A')}")
-            logger.info(f"  min_profit_per_day_B: {self._scoring_rules.get('min_profit_per_day_B')}")
-            logger.info(f"=== FIN CHARGEMENT scoring_rules.yml ===")
-            logger.debug(f"Règles de scoring chargées: use_profit_per_day_rules={self._scoring_rules.get('use_profit_per_day_rules')}")
-            return self._scoring_rules
+                scoring_rules = yaml.safe_load(f) or {}
+            
+            # Logger le chargement avec WARNING pour forcer la visibilité
+            logger.warning(f"=== CHARGEMENT scoring_rules.yml (FORCE RELOAD) ===")
+            logger.warning(f"  min_margin_percent: {scoring_rules.get('min_margin_percent')}")
+            logger.warning(f"  min_global_score_A: {scoring_rules.get('min_global_score_A')}")
+            logger.warning(f"  min_global_score_B: {scoring_rules.get('min_global_score_B')}")
+            logger.warning(f"  use_profit_per_day_rules: {scoring_rules.get('use_profit_per_day_rules')}")
+            logger.warning(f"  min_profit_per_day_A: {scoring_rules.get('min_profit_per_day_A')}")
+            logger.warning(f"  min_profit_per_day_B: {scoring_rules.get('min_profit_per_day_B')}")
+            logger.warning(f"=== FIN CHARGEMENT scoring_rules.yml ===")
+            
+            # NE PAS METTRE EN CACHE - retourner directement
+            return scoring_rules
         except Exception as e:
             logger.error(f"Erreur lors du chargement de scoring_rules.yml: {e}", exc_info=True)
-            # Valeurs par défaut
-            self._scoring_rules = {
+            # Valeurs par défaut (sans cache)
+            return {
                 "min_margin_percent": 10,
                 "min_global_score_A": 50,
                 "min_global_score_B": 20,
                 "use_profit_per_day_rules": False,
                 "risk_factors": {"default": 0.1},
             }
-            return self._scoring_rules
 
     def score_product_option(
         self,
@@ -112,8 +115,16 @@ class ScoringService:
         Returns:
             ProductScore avec tous les calculs effectués.
         """
+        # LOG 1: Début du scoring
+        logger.warning(f"SCORING START for {candidate.asin}")
+        
         fees_config = self._load_fees_config()
+        
+        # FORCER le rechargement des règles à chaque appel
         scoring_rules = self._load_scoring_rules()
+        
+        # LOG 2: Règles chargées
+        logger.warning(f"RULES LOADED for {candidate.asin}: use_profit_per_day_rules={scoring_rules.get('use_profit_per_day_rules')}, min_profit_per_day_A={scoring_rules.get('min_profit_per_day_A')}")
         
         # Récupérer la config du profit model pour le marketplace
         marketplace_code = candidate.source_marketplace.replace("amazon_", "")  # "amazon_fr" -> "fr"
@@ -289,7 +300,7 @@ class ScoringService:
         # ============================================================
         # 12. DÉCISION FINALE (règle profit/jour AVANT min_global_score_A)
         # ============================================================
-        # Recharger les règles à chaque fois pour éviter le cache
+        # FORCER le rechargement des règles juste avant la décision (sans cache)
         scoring_rules = self._load_scoring_rules()
         
         min_margin = Decimal(str(scoring_rules.get("min_margin_percent", 10)))
@@ -413,6 +424,9 @@ class ScoringService:
             f"Score calculé pour {candidate.asin} + {option.supplier_name}: "
             f"decision={decision}, score={global_score}, marge%={margin_percent}"
         )
+        
+        # LOG 3: Décision finale avant return
+        logger.warning(f"DECISION FINAL for {candidate.asin}: {decision} (approx_profit_per_day={approx_profit_per_day}, use_profit_per_day_rules={use_profit_per_day_rules})")
 
         return product_score
 
