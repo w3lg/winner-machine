@@ -8,6 +8,7 @@ markets:
     label: "France"
     active: true
     asins:
+      - B06XZ9K244
       - B0CGQ3H5XF
       - B005LDY0SO
       - B0CP17BQQS
