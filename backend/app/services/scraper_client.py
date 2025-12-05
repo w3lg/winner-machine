@@ -238,10 +238,14 @@ class ScraperClient:
                     
                     try:
                         price_value = float(price_clean)
-                        # Filtrer les prix aberrants (< 1 EUR ou > 10000 EUR)
-                        if 1.0 <= price_value <= 10000.0:
-                            logger.info(f"Prix trouvé via {selector_name} pour {asin}: {price_value} EUR")
-                            return Decimal(str(price_value))
+                        # Sanity Filter : rejeter les prix aberrants (< 1 EUR ou > 2000 EUR)
+                        if price_value > 2000 or price_value < 1:
+                            logger.warning(f"SCRAPER PRICE REJECTED for {asin}: {price_value} EUR (hors limite 1-2000)")
+                            continue
+                        
+                        # Prix valide
+                        logger.info(f"Prix trouvé via {selector_name} pour {asin}: {price_value} EUR")
+                        return Decimal(str(price_value))
                     except (ValueError, AttributeError):
                         continue
 
