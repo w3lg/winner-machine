@@ -20,6 +20,7 @@ from app.models.product_candidate import ProductCandidate
 from app.models.sourcing_option import SourcingOption
 from app.models.product_score import ProductScore
 from app.services.spapi_client import SPAPIClient
+from app.services.scraper_client import ScraperClient
 from app.services.profit_model_service import get_profit_model_service
 from app.core.config import get_settings
 
@@ -51,6 +52,7 @@ class ScoringService:
         self._fees_config: Optional[dict] = None
         self._scoring_rules: Optional[dict] = None
         self.spapi_client = SPAPIClient()
+        self.scraper_client = ScraperClient()
         self.profit_model_service = get_profit_model_service()
         self.settings = get_settings()
 
@@ -135,11 +137,12 @@ class ScoringService:
         profit_config = self.profit_model_service.get_marketplace_config(marketplace_code)
 
         # ============================================================
-        # 1. PRIX DE VENTE CIBLE (avec SP-API si disponible)
+        # 1. PRIX DE VENTE CIBLE (Ordre de priorité: SP-API → Scraper → Keepa)
         # ============================================================
         selling_price_target = None
+        price_source = None
         
-        # Essayer SP-API d'abord
+        # 1) Première source : SP-API (competitive pricing)
         spapi_pricing = self.spapi_client.get_pricing_for_asin(
             candidate.asin,
             marketplace_id=self.settings.SPAPI_MARKETPLACE_ID_FR
@@ -154,18 +157,35 @@ class ScoringService:
             )
             if selling_price_target:
                 selling_price_target = Decimal(str(selling_price_target))
-                logger.debug(f"Prix depuis SP-API pour {candidate.asin}: {selling_price_target} EUR")
+                price_source = "SP-API"
+                logger.warning(f"SP-API PRICE OK for {candidate.asin}: {selling_price_target} EUR")
         
-        # Fallback sur Keepa avg_price
+        # 2) Fallback : Scraper HTML Amazon FR
         if selling_price_target is None:
-            selling_price_target = candidate.avg_price
+            scraper_price = self.scraper_client.scrape_price_for_product(candidate.asin)
+            if scraper_price and scraper_price > 0:
+                selling_price_target = scraper_price
+                price_source = "SCRAPER"
+                logger.warning(f"SCRAPER PRICE OK for {candidate.asin}: {selling_price_target} EUR")
         
-        # Fallback final : 2x le coût unitaire
+        # 3) Fallback final : Keepa avg_price
+        if selling_price_target is None:
+            if candidate.avg_price and candidate.avg_price > 0:
+                selling_price_target = candidate.avg_price
+                price_source = "KEEPA"
+                logger.warning(f"KEEPA PRICE used for {candidate.asin}: {selling_price_target} EUR")
+        
+        # 4) Fallback ultime : 2x le coût unitaire
         if selling_price_target is None:
             if option.unit_cost:
                 selling_price_target = option.unit_cost * Decimal("2.0")
+                price_source = "ESTIMATED"
+                logger.warning(
+                    f"Pas de prix disponible pour {candidate.asin}, estimation = 2x coût unitaire: {selling_price_target} EUR"
+                )
             else:
                 selling_price_target = Decimal("0")
+                price_source = "NONE"
                 logger.warning(
                     f"Pas de prix pour {candidate.asin}, prix cible = 0"
                 )

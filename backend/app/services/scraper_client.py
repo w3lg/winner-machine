@@ -1,11 +1,12 @@
 """
 Client scraper Amazon FR maison - Scraping direct sans dépendance externe.
 
-Scrape les pages Amazon pour extraire des ASINs.
+Scrape les pages Amazon pour extraire des ASINs et des prix.
 """
 import logging
 import re
 from typing import List, Optional
+from decimal import Decimal
 import httpx
 from urllib.parse import quote
 
@@ -181,4 +182,79 @@ class ScraperClient:
         except Exception as e:
             logger.error(f"Erreur lors du scraping de la recherche: {str(e)}", exc_info=True)
             return []
+
+    def scrape_price_for_product(self, asin: str) -> Optional[Decimal]:
+        """
+        Scrape le prix d'un produit depuis sa page Amazon FR.
+
+        Args:
+            asin: ASIN du produit.
+
+        Returns:
+            Prix en Decimal (EUR) ou None si non trouvé/erreur.
+        """
+        url = f"https://www.amazon.fr/dp/{asin}"
+        logger.info(f"Scraping du prix pour ASIN {asin}: {url}")
+
+        try:
+            html = self.fetch_html(url)
+
+            # Essayer plusieurs sélecteurs pour le prix (par ordre de priorité)
+            price_patterns = [
+                # #priceblock_ourprice (format: <span id="priceblock_ourprice">29,99 €</span>)
+                (r'<span[^>]*id=["\']priceblock_ourprice["\'][^>]*>([^<]+)', "priceblock_ourprice"),
+                # #priceblock_dealprice (format: <span id="priceblock_dealprice">29,99 €</span>)
+                (r'<span[^>]*id=["\']priceblock_dealprice["\'][^>]*>([^<]+)', "priceblock_dealprice"),
+                # .a-offscreen (format: <span class="a-offscreen">29,99 €</span>)
+                (r'<span[^>]*class=["\'][^"\']*a-offscreen[^"\']*["\'][^>]*>([^<]+)', "a-offscreen"),
+                # Prix dans data-a-color="price" (format: <span data-a-color="price">29,99</span>)
+                (r'data-a-color=["\']price["\'][^>]*>([^<]+)', "data-a-color=price"),
+                # Prix dans span class "a-price-whole" (format: <span class="a-price-whole">29</span>)
+                (r'<span[^>]*class=["\'][^"\']*a-price-whole[^"\']*["\'][^>]*>([^<]+)', "a-price-whole"),
+                # Prix dans span class avec "a-price" (format: <span class="a-price">29,99</span>)
+                (r'<span[^>]*class=["\'][^"\']*a-price[^"\']*["\'][^>]*>([^<]+)', "a-price"),
+                # Prix dans format JSON-LD (structured data)
+                (r'"price":\s*["\']?([\d,]+\.?\d*)[^"\']*["\']?', "json-ld"),
+                # Prix générique dans format "XX,XX EUR" ou "XX.XX EUR"
+                (r'(\d+[,\.]\d{2})\s*(?:€|EUR|euros?)', "generic-price"),
+            ]
+
+            for pattern, selector_name in price_patterns:
+                matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    price_str = match.strip()
+                    # Nettoyer le prix : extraire les chiffres, points et virgules
+                    # Format attendu : "29,99 €" ou "29.99" ou "29,99EUR"
+                    price_clean = re.sub(r'[^\d,.]', '', price_str)
+                    # Remplacer la virgule par un point pour conversion
+                    price_clean = price_clean.replace(',', '.')
+                    
+                    # Vérifier qu'on a au moins un chiffre et un point/virgule
+                    if not re.match(r'^\d+[.,]\d+$', price_clean):
+                        # Essayer de trouver un format avec seulement des chiffres (prix entier)
+                        price_clean_digits = re.sub(r'[^\d]', '', price_str)
+                        if price_clean_digits and len(price_clean_digits) >= 2:
+                            price_clean = price_clean_digits
+                    
+                    try:
+                        price_value = float(price_clean)
+                        # Filtrer les prix aberrants (< 1 EUR ou > 10000 EUR)
+                        if 1.0 <= price_value <= 10000.0:
+                            logger.info(f"Prix trouvé via {selector_name} pour {asin}: {price_value} EUR")
+                            return Decimal(str(price_value))
+                    except (ValueError, AttributeError):
+                        continue
+
+            logger.warning(f"Aucun prix trouvé pour {asin} sur {url}")
+            return None
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Erreur HTTP {e.response.status_code} lors du scraping du prix pour {asin}: {str(e)}")
+            return None
+        except httpx.TimeoutException:
+            logger.warning(f"Timeout lors du scraping du prix pour {asin}")
+            return None
+        except Exception as e:
+            logger.warning(f"Erreur lors du scraping du prix pour {asin}: {str(e)}", exc_info=True)
+            return None
 
