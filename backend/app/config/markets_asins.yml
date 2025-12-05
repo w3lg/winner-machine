@@ -8,17 +8,13 @@ markets:
     label: "France"
     active: true
     asins:
-      - B06XZ9K244
       - B0CGQ3H5XF
       - B005LDY0SO
-      - B0CP17BQQS
-      - B084L6FGQ6
       - B0FLJ9M52V
-      - B0DLHB1QVR
-      - B004L846XO
-      - B0FFYQJXY1
-      - B0FN4C3WK2
       - B0FW53295F
+      - B0FN4C3WK2
+      - B0DLHB1QVR
+      - B0CP17BQQS
 
   amazon_de:
     domain: 3
