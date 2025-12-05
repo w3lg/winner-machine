@@ -289,12 +289,15 @@ class ScoringService:
         # ============================================================
         # 12. DÉCISION FINALE (règle profit/jour AVANT min_global_score_A)
         # ============================================================
+        # Recharger les règles à chaque fois pour éviter le cache
+        scoring_rules = self._load_scoring_rules()
+        
         min_margin = Decimal(str(scoring_rules.get("min_margin_percent", 10)))
         min_score_A = Decimal(str(scoring_rules.get("min_global_score_A", 50)))
         min_score_B = Decimal(str(scoring_rules.get("min_global_score_B", 20)))
         
         # Règle optionnelle basée sur profit/jour (priorité sur min_global_score_A)
-        use_profit_per_day_rules = scoring_rules.get("use_profit_per_day_rules", False)
+        use_profit_per_day_rules = bool(scoring_rules.get("use_profit_per_day_rules", False))
         min_profit_per_day_A = Decimal(str(scoring_rules.get("min_profit_per_day_A", 5.0)))
         min_profit_per_day_B = Decimal(str(scoring_rules.get("min_profit_per_day_B", 1.0)))
         
@@ -305,15 +308,15 @@ class ScoringService:
             logger.info(f"  min_margin_percent: {scoring_rules.get('min_margin_percent')}")
             logger.info(f"  min_global_score_A: {scoring_rules.get('min_global_score_A')}")
             logger.info(f"  min_global_score_B: {scoring_rules.get('min_global_score_B')}")
-            logger.info(f"  use_profit_per_day_rules: {scoring_rules.get('use_profit_per_day_rules')}")
-            logger.info(f"  min_profit_per_day_A: {scoring_rules.get('min_profit_per_day_A')}")
-            logger.info(f"  min_profit_per_day_B: {scoring_rules.get('min_profit_per_day_B')}")
+            logger.info(f"  use_profit_per_day_rules: {use_profit_per_day_rules} (type: {type(use_profit_per_day_rules)})")
+            logger.info(f"  min_profit_per_day_A: {min_profit_per_day_A} (type: {type(min_profit_per_day_A)})")
+            logger.info(f"  min_profit_per_day_B: {min_profit_per_day_B} (type: {type(min_profit_per_day_B)})")
             logger.info(f"=== DEBUG B06XZ9K244: Valeurs calculées ===")
-            logger.info(f"  margin_percent: {margin_percent}")
-            logger.info(f"  approx_profit_per_day: {approx_profit_per_day}")
-            logger.info(f"  net_profit_estimated: {net_profit_estimated}")
-            logger.info(f"  estimated_sales_per_day: {estimated_sales_per_day}")
-            logger.info(f"  global_score: {global_score}")
+            logger.info(f"  margin_percent: {margin_percent} (type: {type(margin_percent)})")
+            logger.info(f"  approx_profit_per_day: {approx_profit_per_day} (type: {type(approx_profit_per_day)})")
+            logger.info(f"  net_profit_estimated: {net_profit_estimated} (type: {type(net_profit_estimated)})")
+            logger.info(f"  estimated_sales_per_day: {estimated_sales_per_day} (type: {type(estimated_sales_per_day)})")
+            logger.info(f"  global_score: {global_score} (type: {type(global_score)})")
             logger.info(f"=== DEBUG B06XZ9K244: Seuils utilisés ===")
             logger.info(f"  min_margin: {min_margin}")
             logger.info(f"  min_profit_per_day_A: {min_profit_per_day_A}")
@@ -329,6 +332,9 @@ class ScoringService:
             f"min_profit_A={min_profit_per_day_A}, min_profit_B={min_profit_per_day_B}"
         )
 
+        # Initialiser la décision par défaut
+        decision = "C_drop"
+        
         # Vérifier d'abord la marge minimale
         if margin_percent is None or margin_percent < min_margin:
             decision = "C_drop"
@@ -343,13 +349,17 @@ class ScoringService:
             )
             if is_target_asin:
                 logger.info(f"=== DEBUG B06XZ9K244: Application règle profit/jour ===")
+                logger.info(f"  Condition: use_profit_per_day_rules={use_profit_per_day_rules} AND approx_profit_per_day is not None={approx_profit_per_day is not None}")
                 logger.info(f"  approx_profit_per_day ({approx_profit_per_day}) >= min_profit_per_day_A ({min_profit_per_day_A}) ? {approx_profit_per_day >= min_profit_per_day_A}")
-            if approx_profit_per_day >= min_profit_per_day_A:
+                logger.info(f"  Comparaison: {float(approx_profit_per_day)} >= {float(min_profit_per_day_A)} = {float(approx_profit_per_day) >= float(min_profit_per_day_A)}")
+            
+            # Comparaison explicite avec conversion Decimal
+            if approx_profit_per_day is not None and approx_profit_per_day >= min_profit_per_day_A:
                 decision = "A_launch"
                 logger.debug(f"Decision A_launch: profit/jour {approx_profit_per_day} >= {min_profit_per_day_A}")
                 if is_target_asin:
                     logger.info(f"=== DEBUG B06XZ9K244: DECISION = A_launch (profit/jour {approx_profit_per_day} >= {min_profit_per_day_A}) ===")
-            elif approx_profit_per_day >= min_profit_per_day_B:
+            elif approx_profit_per_day is not None and approx_profit_per_day >= min_profit_per_day_B:
                 decision = "B_review"
                 logger.debug(f"Decision B_review: profit/jour {approx_profit_per_day} >= {min_profit_per_day_B} mais < {min_profit_per_day_A}")
                 if is_target_asin:
